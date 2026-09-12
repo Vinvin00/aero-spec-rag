@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# Vector stores (rebuildable with `python -m src.ingest`)
+.chroma/
+.chroma-test/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# OS
+.DS_Store
