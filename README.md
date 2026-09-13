@@ -99,6 +99,20 @@ uvicorn src.api:app --reload --port 8000
 
 Interactive docs are then at `http://127.0.0.1:8000/docs`.
 
+### Or with Docker
+
+```bash
+docker build -t aero-spec-rag .
+docker run --rm -p 8001:8001 aero-spec-rag
+```
+
+The corpus is ingested at build time (deterministic offline embeddings, no
+API key, no network call), so the container starts serving immediately on
+`:8001`. This image is also what
+[missile-sim-viz](https://github.com/Vinvin00/missile_guidance_sim)'s
+`docker-compose.yml` builds as its `rag-backend` service, as a sibling
+checkout — see that repo's README.
+
 ## Example request
 
 ```bash

@@ -1,0 +1,9 @@
+.venv/
+.chroma/
+.chroma-test/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.DS_Store
+requirements.lock.txt
