@@ -53,6 +53,10 @@ def ground_spec_endpoint(request: GroundSpecRequest) -> GroundedSpec:
     except Exception as exc:  # pragma: no cover - surfaced as a 503 to the caller
         raise HTTPException(
             status_code=503,
-            detail=f"grounding pipeline unavailable: {exc}. Has `python -m src.ingest` run?",
+            detail=(
+                f"grounding pipeline unavailable: {exc}. Run `python -m src.ingest`; "
+                "if you changed AERO_EMBEDDINGS, the store is dimension-specific and "
+                "needs `python -m src.ingest --rebuild`."
+            ),
         ) from exc
     return GroundedSpec.model_validate(result)

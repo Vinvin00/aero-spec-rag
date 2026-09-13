@@ -46,6 +46,19 @@ python -m src.ingest --rebuild         # required: the store is dimension-specif
 uvicorn src.api:app --reload --port 8000
 ```
 
+> **If `ollama pull` times out**, your network may not have a route to
+> Cloudflare R2, where Ollama hosts model blobs (`dial tcp 172.64.x.x:443: i/o
+> timeout`). Pulling the equivalent GGUF from HuggingFace goes over a different
+> CDN and works:
+>
+> ```bash
+> ollama pull hf.co/CompendiumLabs/bge-small-en-v1.5-gguf
+> export AERO_OLLAMA_EMBED_MODEL=hf.co/CompendiumLabs/bge-small-en-v1.5-gguf
+> ```
+>
+> bge-small-en-v1.5 is 24 MB and 384-dimensional; this is the combination the
+> project was verified against.
+
 Enabling the LLM adds exactly two capabilities, and **neither can produce a
 number**:
 

@@ -186,16 +186,33 @@ expected values, not just on schema shape.
 into `verify_node` to prove it is discarded, and an unanswerable query is
 asserted to degrade to `verified: false` rather than fabricate.
 
-## Known gaps
+## Embedding model: bge-small-en-v1.5 via HuggingFace, not nomic via the Ollama CDN
 
-**`nomic-embed-text` could not be pulled on this machine.** `AERO_EMBEDDINGS=ollama`
-is implemented and wired through, but the download from the Ollama registry
-timed out at the manifest stage (`dial tcp 172.64.66.1:443: i/o timeout`) across
-repeated attempts — a network path problem, not a code one. The chat-model path
-(`AERO_LLM=ollama` with `llama3.1:8b`) *was* verified end to end against a live
-server. The embeddings test is written and skips itself until the model is
-present; run `ollama pull nomic-embed-text` on a working network, then
-`python -m src.ingest --rebuild`, and it will execute.
+`ollama pull nomic-embed-text` fails on this machine. The cause is a network
+route, not Ollama or this code: `r2.cloudflarestorage.com` (172.64.64.0/18),
+where Ollama hosts model blobs, times out after 15 seconds, while
+`registry.ollama.ai` answers in 0.13 s and `huggingface.co` in 0.06 s. The pull
+therefore resolves its manifest and then dies fetching the blob.
+
+Two workarounds were tried:
+
+*Embedding with an already-local model.* Rejected — `llama3.1:8b` is loaded as a
+completion server and `/api/embed` returns "This server does not support
+embeddings".
+
+*Pulling the equivalent GGUF from HuggingFace.* Works, because it uses a CDN
+this network can reach. `hf.co/CompendiumLabs/bge-small-en-v1.5-gguf` is 24 MB,
+384-dimensional, pulls in seconds, and the full suite passes against it —
+40 passed, 0 skipped, including the previously-skipped embedding test.
+
+`nomic-embed-text` remains the config default because it is the idiomatic choice
+and works on most networks; `AERO_OLLAMA_EMBED_MODEL` overrides it, and the
+README documents the HuggingFace route for anyone behind the same block.
+
+**The vector store is dimension-specific**, so switching embedding backends
+requires `python -m src.ingest --rebuild`. The README says so at the point of
+use, and a stale store fails loudly at query time rather than silently returning
+nonsense.
 
 ## Remote
 
