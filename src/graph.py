@@ -14,10 +14,11 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from . import config
-from .bounds import BY_KEY, Quantity, match_query
+from .bounds import BY_KEY, QUANTITIES, Quantity, match_query
 from .embeddings import tokenize
 from .extract import Candidate, extract_candidates
 from .ingest import get_vectorstore
+from .llm import classify_quantity, llm_enabled, narrate
 from .schemas import Citation, GroundedSpec, VerificationFlag
 
 # Query terms that carry no retrieval signal.
@@ -104,22 +105,40 @@ def retrieve_node(state: GroundingState, store=None) -> GroundingState:
     top_k = int(state.get("top_k") or config.TOP_K)
     vectorstore = store or _default_store()
 
+    # Identify the quantity first, so it can steer retrieval. The alias registry
+    # is exact-match; when it misses, an LLM (if configured) can recognise the
+    # phrasing, but may only return a key that already exists in the registry.
+    matched = match_query(query)
+    quantity_key = matched.key if matched else None
+    if quantity_key is None and llm_enabled():
+        quantity_key = classify_quantity(query, [q.key for q in QUANTITIES])
+
+    # Expand the search with the quantity's canonical vocabulary. "How heavy is
+    # the bird at launch?" shares no words with a "launch mass" table row, so
+    # without this the right chunk never enters the pool.
+    quantity = BY_KEY.get(quantity_key or "")
+    alias_text = " ".join(quantity.doc_aliases) if quantity else ""
+    search_text = f"{query} {alias_text}".strip()
+
     # Over-fetch, then rescore: the offline hashing embedder is weak at
     # paraphrase, so a lexical pass materially improves the final ordering.
     pool: List[Tuple[Document, float]] = vectorstore.similarity_search_with_score(
-        query, k=max(top_k * 4, top_k)
+        search_text, k=max(top_k * 4, top_k)
     )
     terms = query_terms(query)
+    alias_terms = query_terms(alias_text)
     ranked = sorted(
         pool,
         key=lambda pair: (
-            lexical_score(pair[0].page_content, terms) - 0.15 * float(pair[1])
+            lexical_score(pair[0].page_content, terms)
+            + 0.3 * lexical_score(pair[0].page_content, alias_terms)
+            - 0.15 * float(pair[1])
         ),
         reverse=True,
     )[:top_k]
 
     return {
-        "quantity_key": (match_query(query).key if match_query(query) else None),
+        "quantity_key": quantity_key,
         "retrieved": [
             {
                 "content": doc.page_content,
@@ -319,9 +338,40 @@ def propose_node(state: GroundingState) -> GroundingState:
 
 
 def finalize_node(state: GroundingState) -> GroundingState:
-    """Terminal node: validate the payload one last time before it leaves."""
-    result = state.get("result") or {}
-    return {"result": GroundedSpec.model_validate(result).model_dump()}
+    """Validate the payload, and optionally phrase the answer with an LLM.
+
+    Narration is presentation only: it rewrites `answer` from fields that are
+    already selected and verified, and is rejected unless the value and the
+    source document both survive into the sentence. Every structured field is
+    produced deterministically regardless of backend.
+    """
+    spec = GroundedSpec.model_validate(state.get("result") or {})
+
+    selected: Optional[Candidate] = state.get("selected")
+    if selected is not None and llm_enabled():
+        sentence = narrate(
+            quantity=spec.quantity or selected.quantity_key,
+            value=selected.value_repr(),
+            unit=spec.unit or "",
+            context=spec.context,
+            source_doc=spec.source_doc or "",
+        )
+        if sentence:
+            spec.answer = sentence
+            spec.narration_model = f"{config.LLM_BACKEND}:{config.LLM_MODEL}"
+        else:
+            spec.flags.append(
+                VerificationFlag(
+                    code="narration_unavailable",
+                    severity="info",
+                    message=(
+                        "LLM narration was skipped or rejected; the deterministic "
+                        "answer sentence is reported instead."
+                    ),
+                )
+            )
+
+    return {"result": spec.model_dump()}
 
 
 # --------------------------------------------------------------------------

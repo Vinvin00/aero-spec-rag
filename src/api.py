@@ -37,6 +37,8 @@ def health() -> dict:
         "status": "ok",
         "collection": config.COLLECTION_NAME,
         "embedding_backend": config.EMBEDDING_BACKEND,
+        "llm_backend": config.LLM_BACKEND,
+        "llm_model": config.LLM_MODEL if config.LLM_BACKEND != "none" else None,
         "top_k": config.TOP_K,
     }
 

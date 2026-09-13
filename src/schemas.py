@@ -43,6 +43,13 @@ class GroundedSpec(BaseModel):
     plausible_bounds: Optional[List[float]] = None
     flags: List[VerificationFlag] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
+    narration_model: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set only when an LLM rephrased `answer`. Structured fields are always "
+            "produced deterministically."
+        ),
+    )
     disclaimer: str = (
         "Illustrative corpus. Values are teaching or order-of-magnitude figures, "
         "not the specifications of any real system."

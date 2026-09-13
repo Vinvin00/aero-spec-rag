@@ -19,3 +19,12 @@ TOP_K = int(os.environ.get("AERO_TOP_K", 5))
 # "local" (default, offline deterministic), "openai", or "voyage".
 EMBEDDING_BACKEND = os.environ.get("AERO_EMBEDDINGS", "local").lower()
 EMBEDDING_DIM = int(os.environ.get("AERO_EMBEDDING_DIM", 512))
+
+# --- Ollama / LLM ---------------------------------------------------------
+# "none" (default, fully deterministic), "ollama", or "anthropic".
+LLM_BACKEND = os.environ.get("AERO_LLM", "none").lower()
+LLM_MODEL = os.environ.get("AERO_LLM_MODEL", "llama3.1:8b")
+LLM_TIMEOUT = float(os.environ.get("AERO_LLM_TIMEOUT", 30))
+
+OLLAMA_BASE_URL = os.environ.get("AERO_OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_EMBED_MODEL = os.environ.get("AERO_OLLAMA_EMBED_MODEL", "nomic-embed-text")

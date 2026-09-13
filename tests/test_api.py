@@ -19,6 +19,8 @@ def test_health(client):
     body = response.json()
     assert body["status"] == "ok"
     assert body["collection"]
+    assert body["embedding_backend"]
+    assert "llm_backend" in body
 
 
 def test_ground_spec_returns_valid_schema(client):

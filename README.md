@@ -31,6 +31,43 @@ No API key is required. The default embedding backend is a deterministic offline
 hashing embedder, so ingestion, the graph, and the test suite all run with no
 network access (see [DECISIONS.md](DECISIONS.md)).
 
+### Optional: run a real model locally with Ollama
+
+Both model slots can be served by [Ollama](https://ollama.com), so the project
+gains a genuine LLM and learned embeddings without any API key or cloud call:
+
+```bash
+ollama pull llama3.1:8b        # chat model
+ollama pull nomic-embed-text   # embedding model
+
+export AERO_LLM=ollama                 # enables classification + narration
+export AERO_EMBEDDINGS=ollama          # learned embeddings instead of hashing
+python -m src.ingest --rebuild         # required: the store is dimension-specific
+uvicorn src.api:app --reload --port 8000
+```
+
+Enabling the LLM adds exactly two capabilities, and **neither can produce a
+number**:
+
+1. **Quantity classification fallback.** The alias registry in `src/bounds.py`
+   is exact-match. When it misses a phrasing — *"how heavy is the bird at
+   launch?"* — the LLM maps the query onto a registry key, and is constrained to
+   return a key that already exists. The identified quantity then steers
+   retrieval, and the value still comes from a parsed, bounds-checked table row.
+2. **Answer narration.** The `answer` sentence is rephrased in natural language
+   from fields that are *already* selected and verified. The sentence is
+   rejected unless the verified value survives into it verbatim, and the
+   citation is appended deterministically rather than asked of the model. On
+   rejection or backend failure the deterministic sentence is kept and a
+   `narration_unavailable` flag is raised.
+
+`narration_model` in the response records which model phrased the answer, and is
+`null` whenever the deterministic sentence was used. Every structured field
+(`value`, `unit`, `source_doc`, `verified`, `confidence`) is produced the same
+way regardless of backend.
+
+With the LLM off — the default — no model is contacted at all.
+
 ## Ingest the corpus
 
 ```bash
@@ -92,8 +129,8 @@ curl -s -X POST http://127.0.0.1:8000/ground-spec \
 }
 ```
 
-`GET /health` reports the collection name, the active embedding backend, and the
-configured `top_k`.
+`GET /health` reports the collection name, the active embedding and LLM
+backends, and the configured `top_k`.
 
 You can also query the graph directly without the server:
 
@@ -112,7 +149,7 @@ START → retrieve → verify → propose → finalize → END
 | `retrieve` | Vector search against Chroma (`top_k=5` by default), over-fetched and lexically rescored; also maps the query onto a registry quantity. |
 | `verify` | Parses candidate `\| Quantity \| Value \| Unit \| Notes \|` rows out of the retrieved chunks and checks each against `src/bounds.py`. Out-of-range values are **discarded**, not merely annotated; unit mismatches and order-of-magnitude spreads are flagged. |
 | `propose` | Ranks surviving candidates by how well their row context answers the query, then scores confidence from match strength, retrieval rank, provenance, and any warnings raised. |
-| `finalize` | Re-validates the payload against the `GroundedSpec` pydantic model before it leaves the graph. |
+| `finalize` | Re-validates the payload against the `GroundedSpec` pydantic model, and — only when an LLM backend is configured — rephrases the `answer` sentence under the guards described above. |
 
 If the query matches no quantity in the registry, or no value survives
 verification, the pipeline returns `verified: false` with `value: null` and the
@@ -125,7 +162,8 @@ src/
   corpus/            10 markdown documents with YAML frontmatter
   config.py          env-overridable settings
   corpus_loader.py   frontmatter loading and validation
-  embeddings.py      offline hashing embedder + optional hosted backends
+  embeddings.py      offline hashing embedder + ollama/openai/voyage backends
+  llm.py             optional LLM: constrained classification + guarded narration
   ingest.py          chunk → embed → persist to .chroma/ (idempotent)
   bounds.py          quantity registry and plausibility bounds
   extract.py         numeric candidate extraction from chunk text
@@ -142,13 +180,20 @@ pytest
 ```
 
 Tests build their own vector store under `.chroma-test/` and never touch a
-developer's `.chroma/`.
+developer's `.chroma/`. The LLM guard tests stub the model, so the whole suite
+runs offline; the live Ollama tests skip themselves automatically when the
+server or the model is not present.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AERO_EMBEDDINGS` | `local` | `local`, `openai`, or `voyage` |
+| `AERO_EMBEDDINGS` | `local` | `local`, `ollama`, `openai`, or `voyage` |
+| `AERO_LLM` | `none` | `none`, `ollama`, or `anthropic` |
+| `AERO_LLM_MODEL` | `llama3.1:8b` | Chat model name for the active LLM backend |
+| `AERO_LLM_TIMEOUT` | `30` | Seconds before an LLM call is abandoned |
+| `AERO_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server |
+| `AERO_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model when `AERO_EMBEDDINGS=ollama` |
 | `AERO_CHROMA_DIR` | `.chroma` | Vector store location |
 | `AERO_CORPUS_DIR` | `src/corpus` | Corpus location |
 | `AERO_CHUNK_SIZE` | `800` | Splitter chunk size |

@@ -19,14 +19,53 @@ install. `requirements.lock.txt` is a full `pip freeze` of the working venv.
 
 ## Model and embedding provider
 
-**No LLM call is made anywhere in the pipeline.** `langchain-anthropic` is
-installed as the brief specified and Anthropic is the assumed provider, but the
-graph is fully deterministic: retrieval, table parsing, bounds checking, and
-ranking are all rule-based. This was chosen deliberately over an LLM-synthesised
-answer because the deliverable is a *machine-usable grounded value* feeding a
-simulation, and a parsed table cell with a citation is strictly more trustworthy
-than a generated number. Adding an LLM node to phrase the `answer` string in
-natural language is a v2 candidate; it would not change the numeric fields.
+**No LLM call is made anywhere in the pipeline by default.**
+`langchain-anthropic` is installed as the brief specified, but with
+`AERO_LLM=none` (the default) the graph is fully deterministic: retrieval, table
+parsing, bounds checking, and ranking are all rule-based. This was chosen
+deliberately over an LLM-synthesised answer because the deliverable is a
+*machine-usable grounded value* feeding a simulation, and a parsed table cell
+with a citation is strictly more trustworthy than a generated number.
+
+**When an LLM is enabled it is confined to two jobs, neither of which can
+produce a number.** This was the design constraint for the Ollama work:
+
+*Quantity classification (`retrieve`).* The alias registry is exact-match, so
+"how heavy is the bird at launch?" matched nothing and the query failed. The LLM
+now maps such a query onto a registry key, and is **constrained to return a key
+that already exists** — an invented label like `warhead_yield` is rejected. The
+value still comes from a parsed, bounds-checked table row.
+
+*Answer narration (`finalize`).* The `answer` sentence is rephrased from fields
+that are already selected and verified. Three guards apply: the verified value
+must survive into the sentence verbatim or the prose is discarded; the citation
+is appended deterministically rather than asked of the model; and any backend
+failure falls back to the deterministic sentence with a `narration_unavailable`
+flag. `narration_model` records which model phrased the answer, and is null when
+it was the deterministic one.
+
+The guards are not theoretical — llama3.1:8b *did* drop the source filename when
+asked to include it, which the first version of the guard correctly rejected.
+Rather than fight the prompt, the citation was moved out of the model's hands
+entirely. That is the more robust design and would have been worth doing even
+with a stronger model.
+
+**Retrieval is steered by the identified quantity.** Once a quantity is known
+(by alias or by LLM), its canonical vocabulary is appended to the vector search
+text and added to the lexical rescoring with a lower weight. Without this, a
+paraphrased query that the LLM classified correctly still retrieved the wrong
+chunks, because "how heavy is the bird" shares no words with a "launch mass"
+table row. This helps registry-matched queries too, and is not Ollama-specific.
+
+**Ollama is supported for both model slots, but is opt-in rather than the
+default.** `AERO_LLM=ollama` and `AERO_EMBEDDINGS=ollama` give the project a real
+LLM and learned embeddings with no API key and no cloud call, which fits the
+no-key constraint far better than the hosted options. They are not the *default*
+because defaults must work on a clean checkout: a default of `ollama` would make
+`pytest` fail for anyone without a running server and the right models pulled.
+So the deterministic offline path stays the default, Ollama is one environment
+variable away, and the live Ollama tests skip themselves when the server or
+model is absent.
 
 **Default embeddings are a local deterministic hashing embedder, not a hosted
 model.** Anthropic does not offer an embeddings API at all, so "use Anthropic"
@@ -146,6 +185,17 @@ expected values, not just on schema shape.
 **Adversarial cases are covered too**: an out-of-bounds row is injected directly
 into `verify_node` to prove it is discarded, and an unanswerable query is
 asserted to degrade to `verified: false` rather than fabricate.
+
+## Known gaps
+
+**`nomic-embed-text` could not be pulled on this machine.** `AERO_EMBEDDINGS=ollama`
+is implemented and wired through, but the download from the Ollama registry
+timed out at the manifest stage (`dial tcp 172.64.66.1:443: i/o timeout`) across
+repeated attempts — a network path problem, not a code one. The chat-model path
+(`AERO_LLM=ollama` with `llama3.1:8b`) *was* verified end to end against a live
+server. The embeddings test is written and skips itself until the model is
+present; run `ollama pull nomic-embed-text` on a working network, then
+`python -m src.ingest --rebuild`, and it will execute.
 
 ## Remote
 

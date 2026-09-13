@@ -6,8 +6,10 @@ model download, so ingestion, the graph, and the whole test suite run anywhere.
 It is weaker than a learned embedding at paraphrase matching, which is why the
 retriever in this project pairs it with a lexical rescoring pass.
 
-Set AERO_EMBEDDINGS=openai or =voyage (plus the matching API key) to swap in a
-learned model; nothing else in the pipeline changes.
+Set AERO_EMBEDDINGS=ollama to swap in a real learned model that still runs
+locally and needs no API key (pull one first, e.g. `ollama pull nomic-embed-text`),
+or =openai / =voyage for a hosted one. Nothing else in the pipeline changes, but
+the store is dimension-specific, so re-ingest with --rebuild after switching.
 """
 
 from __future__ import annotations
@@ -72,6 +74,13 @@ def get_embeddings() -> Embeddings:
     backend = config.EMBEDDING_BACKEND
     if backend == "local":
         return HashingEmbeddings()
+    if backend == "ollama":
+        from langchain_ollama import OllamaEmbeddings
+
+        return OllamaEmbeddings(
+            model=config.OLLAMA_EMBED_MODEL,
+            base_url=config.OLLAMA_BASE_URL,
+        )
     if backend == "openai":
         from langchain_openai import OpenAIEmbeddings
 
