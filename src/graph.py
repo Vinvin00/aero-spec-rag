@@ -1,6 +1,7 @@
-"""The LangGraph agent: retrieve -> verify -> propose -> finalize.
+"""The grounding pipeline: retrieve -> verify -> propose -> finalize.
 
-v1 is a linear graph with no interrupt; see DECISIONS.md.
+Four functions chained in sequence; no branching or interrupt, so no graph
+engine is needed. See DECISIONS.md.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.documents import Document
-from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from . import config
@@ -29,18 +29,9 @@ _STOPWORDS = {
 }
 
 _UNIT_SCALES = {
-    "km": 1000.0,
-    "kilometre": 1000.0,
-    "kilometer": 1000.0,
-    "kilometres": 1000.0,
-    "kilometers": 1000.0,
-    "m": 1.0,
-    "metre": 1.0,
-    "meter": 1.0,
-    "metres": 1.0,
-    "meters": 1.0,
-    "ft": 0.3048,
-    "feet": 0.3048,
+    "km": 1000.0, "kilometre": 1000.0, "kilometer": 1000.0,
+    "m": 1.0, "metre": 1.0, "meter": 1.0,
+    "ft": 0.3048, "feet": 0.3048,
 }
 _ALTITUDE_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(km|kilometres?|kilometers?|m|metres?|meters?|ft|feet)\b",
@@ -74,7 +65,8 @@ def query_terms(query: str) -> List[str]:
     """
     terms = [t for t in tokenize(query) if t not in _STOPWORDS]
     for raw, unit in _ALTITUDE_RE.findall(query):
-        metres = float(raw) * _UNIT_SCALES[unit.lower()]
+        unit = unit.lower()
+        metres = float(raw) * _UNIT_SCALES.get(unit, _UNIT_SCALES.get(unit.rstrip("s")))
         terms.append(f"{metres:.6g}")
         if metres.is_integer():
             terms.append(str(int(metres)))
@@ -379,20 +371,24 @@ def finalize_node(state: GroundingState) -> GroundingState:
 # --------------------------------------------------------------------------
 
 
-def build_graph(store=None):
-    """Compile the grounding graph. Pass `store` to inject a test vector store."""
-    builder = StateGraph(GroundingState)
-    builder.add_node("retrieve", lambda s: retrieve_node(s, store=store))
-    builder.add_node("verify", verify_node)
-    builder.add_node("propose", propose_node)
-    builder.add_node("finalize", finalize_node)
+class _Pipeline:
+    """Runs the four nodes in sequence, merging each partial state update."""
 
-    builder.add_edge(START, "retrieve")
-    builder.add_edge("retrieve", "verify")
-    builder.add_edge("verify", "propose")
-    builder.add_edge("propose", "finalize")
-    builder.add_edge("finalize", END)
-    return builder.compile()
+    def __init__(self, store=None):
+        self._store = store
+
+    def invoke(self, state: GroundingState) -> GroundingState:
+        state = dict(state)
+        state.update(retrieve_node(state, store=self._store))
+        state.update(verify_node(state))
+        state.update(propose_node(state))
+        state.update(finalize_node(state))
+        return state
+
+
+def build_graph(store=None):
+    """Build the grounding pipeline. Pass `store` to inject a test vector store."""
+    return _Pipeline(store)
 
 
 @lru_cache(maxsize=1)

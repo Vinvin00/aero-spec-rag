@@ -118,16 +118,45 @@ boundaries rather than mid-table where possible.
 **Store path is `.chroma/` and is gitignored.** It is fully rebuildable from the
 corpus in about a second, so committing it would only add churn.
 
-## Graph
+## Pipeline (formerly "Graph")
+
+**LangGraph was removed before this session started; found uncommitted, kept
+as-is, documented here per the task's own instruction to flag such things.**
+`src/graph.py` originally compiled a `langgraph.graph.StateGraph` with four
+nodes and linear edges. At the start of the RAGAS eval task, the working tree
+already had an uncommitted change replacing that with a plain `_Pipeline`
+class — the same four functions (`retrieve_node`, `verify_node`,
+`propose_node`, `finalize_node`), called in sequence, merging each partial
+state dict — with the `langgraph` dependency dropped from `requirements.txt`
+and `pyproject.toml`. The public API (`build_graph()`, `.invoke()`,
+`ground_spec()`) is unchanged, and the full test suite passed against it
+unmodified (37 passed, 3 skipped — the skips are live-Ollama tests unrelated
+to this).
+
+This is a sound simplification, not a bug: the pipeline has no branching, no
+conditional edges, and (per the note below) no interrupt in v1, so a graph
+*engine* was buying nothing over four function calls — the file's own
+docstring already said as much before this task began. Reverting it to
+reintroduce an unused dependency would be working backwards. Kept as-is;
+README.md and this file's remaining LangGraph references were updated to
+match (module still called `graph.py` and still referred to as "the
+pipeline" throughout, since renaming the file is out of scope here). The v2
+human-in-the-loop note below is reworded to not assume the `langgraph`
+library specifically, since restoring it — or using `asyncio`/a queue, or
+any other interrupt mechanism — are equally open once that node exists.
+
+## Pipeline shape
 
 **Linear `retrieve → verify → propose → finalize`, no interrupt.** As specified.
 **A human-in-the-loop interrupt before `propose` is the natural v2 addition** —
-LangGraph's `interrupt_before` plus a checkpointer would let an engineer approve
-or override a low-confidence or flagged value before it reaches a simulation
-config. It was deliberately left out of v1 per the brief.
+some checkpoint/interrupt mechanism (a graph engine's built-in support, or a
+simpler queue/webhook) would let an engineer approve or override a
+low-confidence or flagged value before it reaches a simulation config. It was
+deliberately left out of v1 per the brief.
 
-**State is a `TypedDict`**, not a pydantic model, because that is the LangGraph
-idiom and it keeps node returns as partial dicts. The *response* is a pydantic
+**State is a `TypedDict`**, not a pydantic model, because it keeps node returns
+as partial dicts merged into a growing state — the idiom this pipeline kept
+even after the underlying engine was dropped. The *response* is a pydantic
 model (`GroundedSpec`), validated in `finalize` and again by FastAPI's
 `response_model`, so the external contract is strictly typed even though the
 internal state is not.

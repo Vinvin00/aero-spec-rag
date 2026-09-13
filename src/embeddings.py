@@ -7,9 +7,9 @@ It is weaker than a learned embedding at paraphrase matching, which is why the
 retriever in this project pairs it with a lexical rescoring pass.
 
 Set AERO_EMBEDDINGS=ollama to swap in a real learned model that still runs
-locally and needs no API key (pull one first, e.g. `ollama pull nomic-embed-text`),
-or =openai / =voyage for a hosted one. Nothing else in the pipeline changes, but
-the store is dimension-specific, so re-ingest with --rebuild after switching.
+locally and needs no API key (pull one first, e.g. `ollama pull nomic-embed-text`).
+Nothing else in the pipeline changes, but the store is dimension-specific, so
+re-ingest with --rebuild after switching.
 """
 
 from __future__ import annotations
@@ -81,12 +81,4 @@ def get_embeddings() -> Embeddings:
             model=config.OLLAMA_EMBED_MODEL,
             base_url=config.OLLAMA_BASE_URL,
         )
-    if backend == "openai":
-        from langchain_openai import OpenAIEmbeddings
-
-        return OpenAIEmbeddings(model="text-embedding-3-small")
-    if backend == "voyage":
-        from langchain_voyageai import VoyageAIEmbeddings
-
-        return VoyageAIEmbeddings(model="voyage-3")
     raise ValueError(f"Unknown AERO_EMBEDDINGS backend: {backend!r}")

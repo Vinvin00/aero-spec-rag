@@ -4,7 +4,7 @@ Ask a natural-language question about an aerospace or guidance parameter — a d
 coefficient, ISA density at altitude, a proportional-navigation gain — and get
 back a **structured, cited, machine-usable** answer instead of prose. A LangChain
 ingestion pipeline chunks and embeds a small markdown corpus into a local Chroma
-store; a LangGraph state machine then retrieves the relevant passages, checks any
+store; a small retrieve → verify → propose → finalize pipeline then retrieves the relevant passages, checks any
 number it extracts against a hardcoded table of physical plausibility bounds,
 discards values that fail, and emits a JSON object carrying the value, its unit,
 the source document, a confidence score, a `verified` flag, and the passages it
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 ```
 
 No API key is required. The default embedding backend is a deterministic offline
-hashing embedder, so ingestion, the graph, and the test suite all run with no
+hashing embedder, so ingestion, the pipeline, and the test suite all run with no
 network access (see [DECISIONS.md](DECISIONS.md)).
 
 ### Optional: run a real model locally with Ollama
@@ -159,13 +159,13 @@ curl -s -X POST http://127.0.0.1:8000/ground-spec \
 `GET /health` reports the collection name, the active embedding and LLM
 backends, and the configured `top_k`.
 
-You can also query the graph directly without the server:
+You can also query the pipeline directly without the server:
 
 ```bash
 python -m src.graph "What proportional navigation gain should I use?"
 ```
 
-## How the graph works
+## How the pipeline works
 
 ```
 START → retrieve → verify → propose → finalize → END
@@ -189,12 +189,12 @@ src/
   corpus/            10 markdown documents with YAML frontmatter
   config.py          env-overridable settings
   corpus_loader.py   frontmatter loading and validation
-  embeddings.py      offline hashing embedder + ollama/openai/voyage backends
+  embeddings.py      offline hashing embedder + ollama backend
   llm.py             optional LLM: constrained classification + guarded narration
   ingest.py          chunk → embed → persist to .chroma/ (idempotent)
   bounds.py          quantity registry and plausibility bounds
   extract.py         numeric candidate extraction from chunk text
-  graph.py           the LangGraph StateGraph
+  graph.py           the retrieve/verify/propose/finalize pipeline
   schemas.py         pydantic response models
   api.py             FastAPI app
 tests/
