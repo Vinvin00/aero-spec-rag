@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: aero-spec-rag
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: AERO_LLM
+        value: none
