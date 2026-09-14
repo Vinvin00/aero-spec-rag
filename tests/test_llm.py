@@ -157,9 +157,10 @@ def _ollama_models():
 
 
 AVAILABLE = _ollama_models()
+OLLAMA_CHAT_MODEL = config.LLM_MODEL or config.DEFAULT_LLM_MODELS["ollama"]
 needs_chat = pytest.mark.skipif(
-    config.LLM_MODEL not in AVAILABLE,
-    reason=f"ollama model {config.LLM_MODEL!r} not available locally",
+    OLLAMA_CHAT_MODEL not in AVAILABLE,
+    reason=f"ollama model {OLLAMA_CHAT_MODEL!r} not available locally",
 )
 needs_embed = pytest.mark.skipif(
     config.OLLAMA_EMBED_MODEL not in {n.split(":")[0] for n in AVAILABLE},
@@ -202,3 +203,43 @@ def test_live_ollama_embeddings_have_stable_dimension(monkeypatch):
     vectors = embedder.embed_documents(["drag coefficient of a sphere", "ISA density"])
     assert len(vectors) == 2
     assert len(vectors[0]) == len(vectors[1]) > 0
+
+
+# --------------------------------------------------------------------------
+# Anthropic backend (construction offline; live call only with a real key)
+# --------------------------------------------------------------------------
+
+
+def test_anthropic_backend_uses_a_claude_model_by_default(monkeypatch):
+    from langchain_anthropic import ChatAnthropic
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(config, "LLM_BACKEND", "anthropic")
+    monkeypatch.setattr(config, "LLM_MODEL", None)
+    llm.get_llm.cache_clear()
+    try:
+        model = llm.get_llm()
+        assert isinstance(model, ChatAnthropic)
+        assert model.model == config.DEFAULT_LLM_MODELS["anthropic"]
+        assert model.model.startswith("claude-")
+        assert model.temperature == 0.0
+    finally:
+        llm.get_llm.cache_clear()
+
+
+@pytest.mark.skipif(
+    not __import__("os").environ.get("ANTHROPIC_API_KEY"),
+    reason="ANTHROPIC_API_KEY not set",
+)
+def test_live_anthropic_narration_preserves_the_value(monkeypatch):
+    monkeypatch.setattr(config, "LLM_BACKEND", "anthropic")
+    llm.get_llm.cache_clear()
+    try:
+        sentence = llm.narrate(
+            "air_density", "0.4135", "kg/m^3", "ISA at 10000 m altitude", "isa.md"
+        )
+        assert sentence is not None
+        assert "0.4135" in sentence
+        assert sentence.endswith("Source: isa.md.")
+    finally:
+        llm.get_llm.cache_clear()

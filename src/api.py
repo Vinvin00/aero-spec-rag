@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config
+from . import config, llm
 from .graph import ground_spec
 from .schemas import GroundedSpec, GroundSpecRequest
 
@@ -38,7 +38,7 @@ def health() -> dict:
         "collection": config.COLLECTION_NAME,
         "embedding_backend": config.EMBEDDING_BACKEND,
         "llm_backend": config.LLM_BACKEND,
-        "llm_model": config.LLM_MODEL if config.LLM_BACKEND != "none" else None,
+        "llm_model": llm.model_name() if config.LLM_BACKEND != "none" else None,
         "top_k": config.TOP_K,
     }
 

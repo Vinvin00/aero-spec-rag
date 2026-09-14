@@ -12,6 +12,8 @@ EXAMPLES = [
     ("What is the ISA air density at 10 km altitude?", "air_density", 0.4135, 0.02),
     ("What proportional navigation gain should I use for terminal homing?",
      "navigation_gain", 4.0, 1.0),
+    # Suggested in missile_guidance_sim's spec-grounding panel; must work with AERO_LLM=none.
+    ("How heavy is the medium-range interceptor at launch?", "launch_mass", 700.0, 0.5),
 ]
 
 
@@ -66,7 +68,7 @@ def test_unmatched_quantity_degrades_gracefully():
 
 def test_out_of_bounds_value_is_flagged_and_discarded(graph):
     """A corrupted retrieval must be rejected by the verify node."""
-    from src.graph import propose_node, verify_node
+    from src.graph import decline_node, route_after_verify, verify_node
 
     poisoned = {
         "query": "drag coefficient of a sphere",
@@ -88,10 +90,54 @@ def test_out_of_bounds_value_is_flagged_and_discarded(graph):
     assert verified["candidates"] == []
     assert any(f.code == "out_of_bounds" for f in verified["flags"])
 
-    proposed = propose_node({**poisoned, **verified})
-    spec = GroundedSpec.model_validate(proposed["result"])
+    state = {**poisoned, **verified}
+    assert route_after_verify(state) == "widen"
+    assert route_after_verify({**state, "attempts": 1}) == "decline"
+
+    declined = decline_node(state)
+    spec = GroundedSpec.model_validate(declined["result"])
     assert spec.verified is False
     assert spec.value is None
+
+
+class _PoisonedStore:
+    """Returns only an out-of-bounds row, recording the k of every search."""
+
+    def __init__(self):
+        self.ks = []
+
+    def similarity_search_with_score(self, text, k):
+        from langchain_core.documents import Document
+
+        self.ks.append(k)
+        doc = Document(
+            page_content="| drag coefficient | 47.0 | dimensionless | corrupted row |",
+            metadata={"source_doc": "poison.md", "title": "Poison",
+                      "source_type": "derived", "chunk_index": 0},
+        )
+        return [(doc, 0.1)]
+
+
+def test_failed_verification_widens_retrieval_once_then_declines():
+    store = _PoisonedStore()
+    result = build_graph(store).invoke({"query": "drag coefficient of a sphere", "top_k": 3})
+    spec = GroundedSpec.model_validate(result["result"])
+
+    assert store.ks == [12, 24]  # over-fetch is top_k * 4: first 3, then widened to 6
+    assert spec.verified is False
+    codes = {f.code for f in spec.flags}
+    assert {"widened_retrieval", "out_of_bounds"} <= codes
+
+
+def test_unresolved_quantity_skips_verification():
+    store = _PoisonedStore()
+    result = build_graph(store).invoke({"query": "airframe paint colour"})
+    spec = GroundedSpec.model_validate(result["result"])
+
+    assert len(store.ks) == 1
+    assert spec.verified is False
+    assert not any(f.code == "out_of_bounds" for f in spec.flags)
+    assert any(f.code == "unknown_quantity" for f in spec.flags)
 
 
 def test_query_terms_normalise_altitude_units():

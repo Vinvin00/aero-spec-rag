@@ -3,10 +3,11 @@
 Ask a natural-language question about an aerospace or guidance parameter — a drag
 coefficient, ISA density at altitude, a proportional-navigation gain — and get
 back a **structured, cited, machine-usable** answer instead of prose. A LangChain
-ingestion pipeline chunks and embeds a small markdown corpus into a local Chroma
-store; a small retrieve → verify → propose → finalize pipeline then retrieves the relevant passages, checks any
-number it extracts against a hardcoded table of physical plausibility bounds,
-discards values that fail, and emits a JSON object carrying the value, its unit,
+ingestion pipeline chunks and embeds (bge-small-en-v1.5) a small markdown corpus
+into a local Chroma store; a LangGraph state machine then retrieves the relevant
+passages, checks any number it extracts against a hardcoded table of physical
+plausibility bounds, discards values that fail (widening retrieval once before
+giving up), and emits a JSON object carrying the value, its unit,
 the source document, a confidence score, a `verified` flag, and the passages it
 relied on. It is built as a companion to a missile-guidance simulator: the
 intended consumer is a simulation config loader, not a human reading paragraphs.
@@ -27,9 +28,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-No API key is required. The default embedding backend is a deterministic offline
-hashing embedder, so ingestion, the pipeline, and the test suite all run with no
-network access (see [DECISIONS.md](DECISIONS.md)).
+No API key is required. The default embedding backend is
+[BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) run on
+CPU via fastembed (ONNX); the ~70 MB model downloads once on first ingest. For a
+fully air-gapped run, `AERO_EMBEDDINGS=local` switches to a zero-download
+hashing embedder (see [DECISIONS.md](DECISIONS.md)).
 
 ### Optional: run a real model locally with Ollama
 
@@ -41,7 +44,7 @@ ollama pull llama3.1:8b        # chat model
 ollama pull nomic-embed-text   # embedding model
 
 export AERO_LLM=ollama                 # enables classification + narration
-export AERO_EMBEDDINGS=ollama          # learned embeddings instead of hashing
+export AERO_EMBEDDINGS=ollama          # serve embeddings from Ollama instead of fastembed
 python -m src.ingest --rebuild         # required: the store is dimension-specific
 uvicorn src.api:app --reload --port 8000
 ```
@@ -106,10 +109,10 @@ docker build -t aero-spec-rag .
 docker run --rm -p 8001:8001 aero-spec-rag
 ```
 
-The corpus is ingested at build time (deterministic offline embeddings, no
-API key, no network call), so the container starts serving immediately on
-`:8001`. This image is also what
-[missile-sim-viz](https://github.com/Vinvin00/missile_guidance_sim)'s
+The embedding model and the ingested corpus are baked in at build time, so the
+container starts serving immediately on `:8001` with no API key and no network
+(`HF_HUB_OFFLINE=1`). This image is also what
+[missile_guidance_sim](https://github.com/Vinvin00/missile_guidance_sim)'s
 `docker-compose.yml` builds as its `rag-backend` service, as a sibling
 checkout — see that repo's README.
 
@@ -165,22 +168,32 @@ You can also query the pipeline directly without the server:
 python -m src.graph "What proportional navigation gain should I use?"
 ```
 
-## How the pipeline works
+## How the graph works
 
-```
-START → retrieve → verify → propose → finalize → END
+`src/graph.py` compiles a LangGraph `StateGraph` with two conditional edges:
+
+```mermaid
+flowchart LR
+  START --> retrieve
+  retrieve -- quantity resolved --> verify
+  retrieve -- quantity unresolved --> decline
+  verify -- a value passed bounds --> propose
+  verify -- none passed, first attempt --> widen
+  widen --> retrieve
+  verify -- none passed, already widened --> decline
+  propose --> finalize
+  decline --> finalize
+  finalize --> END
 ```
 
 | Node | Responsibility |
 | --- | --- |
-| `retrieve` | Vector search against Chroma (`top_k=5` by default), over-fetched and lexically rescored; also maps the query onto a registry quantity. |
+| `retrieve` | Maps the query onto a registry quantity, then hybrid search: Chroma vector search (`top_k=5` by default), over-fetched and lexically rescored. |
 | `verify` | Parses candidate `\| Quantity \| Value \| Unit \| Notes \|` rows out of the retrieved chunks and checks each against `src/bounds.py`. Out-of-range values are **discarded**, not merely annotated; unit mismatches and order-of-magnitude spreads are flagged. |
+| `widen` | Doubles `top_k` and loops back to `retrieve` once, adding a `widened_retrieval` flag. |
 | `propose` | Ranks surviving candidates by how well their row context answers the query, then scores confidence from match strength, retrieval rank, provenance, and any warnings raised. |
+| `decline` | Returns `verified: false`, `value: null`, and the citations found — it does not guess. |
 | `finalize` | Re-validates the payload against the `GroundedSpec` pydantic model, and — only when an LLM backend is configured — rephrases the `answer` sentence under the guards described above. |
-
-If the query matches no quantity in the registry, or no value survives
-verification, the pipeline returns `verified: false` with `value: null` and the
-citations it found — it does not guess.
 
 ## Layout
 
@@ -189,12 +202,12 @@ src/
   corpus/            10 markdown documents with YAML frontmatter
   config.py          env-overridable settings
   corpus_loader.py   frontmatter loading and validation
-  embeddings.py      offline hashing embedder + ollama backend
+  embeddings.py      fastembed bge-small (default), hashing, and ollama backends
   llm.py             optional LLM: constrained classification + guarded narration
   ingest.py          chunk → embed → persist to .chroma/ (idempotent)
   bounds.py          quantity registry and plausibility bounds
   extract.py         numeric candidate extraction from chunk text
-  graph.py           the retrieve/verify/propose/finalize pipeline
+  graph.py           the LangGraph grounding graph
   schemas.py         pydantic response models
   api.py             FastAPI app
 tests/
@@ -247,8 +260,11 @@ API key) serving the judge model (`AERO_EVAL_LLM_MODEL`, default
 `qwen2.5:3b` -- see DECISIONS.md for why a small model, not this project's
 usual `llama3.1:8b`, is the eval default). `AERO_EVAL_LLM_BACKEND=anthropic`
 switches to a hosted judge if you'd rather spend an API key than run Ollama.
-A full run takes several minutes against a local model, since RAGAS makes
-multiple sequential LLM calls per question per metric.
+If the judge model isn't pulled, the run stops immediately and names the
+`ollama pull` command. `answer_relevancy` embeds with the same bge-small model
+the pipeline uses, so no Ollama embedding model is needed. A full run takes
+several minutes against a local model, since RAGAS makes multiple sequential
+LLM calls per question per metric.
 
 Each run writes:
 
@@ -272,9 +288,10 @@ runs in the normal `pytest` pass above.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AERO_EMBEDDINGS` | `local` | `local` or `ollama` |
+| `AERO_EMBEDDINGS` | `fastembed` | `fastembed`, `local` (hashing), or `ollama` |
+| `AERO_FASTEMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Model when `AERO_EMBEDDINGS=fastembed` |
 | `AERO_LLM` | `none` | `none`, `ollama`, or `anthropic` |
-| `AERO_LLM_MODEL` | `llama3.1:8b` | Chat model name for the active LLM backend |
+| `AERO_LLM_MODEL` | `llama3.1:8b` (ollama), `claude-haiku-4-5-20251001` (anthropic) | Chat model name for the active LLM backend |
 | `AERO_LLM_TIMEOUT` | `30` | Seconds before an LLM call is abandoned |
 | `AERO_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server |
 | `AERO_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model when `AERO_EMBEDDINGS=ollama` |

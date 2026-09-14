@@ -47,9 +47,6 @@ from .testset import load_testset
 EVAL_LLM_BACKEND = os.environ.get("AERO_EVAL_LLM_BACKEND", "ollama")
 EVAL_LLM_MODEL = os.environ.get("AERO_EVAL_LLM_MODEL", "qwen2.5:3b")
 EVAL_OLLAMA_BASE_URL = os.environ.get("AERO_EVAL_OLLAMA_BASE_URL", "http://localhost:11434")
-EVAL_EMBED_MODEL = os.environ.get(
-    "AERO_EVAL_EMBED_MODEL", "hf.co/CompendiumLabs/bge-small-en-v1.5-gguf"
-)
 
 # Matches propose_node's fixed answer template in src/graph.py:
 # f"{key} = {value} {unit}{' (' + notes + ')' if notes else ''}, from {doc}."
@@ -165,12 +162,24 @@ def verify_node_accuracy(results: List[PipelineResult]) -> Dict[str, Any]:
 
 def _build_ragas_judge():
     """Wrap a chat model + embeddings for RAGAS. Ollama by default, no API key."""
-    from langchain_ollama import OllamaEmbeddings
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
 
     if EVAL_LLM_BACKEND == "ollama":
+        import json
+        import urllib.request
+
         from langchain_ollama import ChatOllama
+
+        # Fail in seconds, not after ragas's first 600 s job timeout.
+        with urllib.request.urlopen(f"{EVAL_OLLAMA_BASE_URL}/api/tags", timeout=5) as r:
+            pulled = {m["name"] for m in json.load(r).get("models", [])}
+        if EVAL_LLM_MODEL not in pulled and f"{EVAL_LLM_MODEL}:latest" not in pulled:
+            raise RuntimeError(
+                f"RAGAS judge model {EVAL_LLM_MODEL!r} is not pulled in Ollama. "
+                f"Run `ollama pull {EVAL_LLM_MODEL}`, or set AERO_EVAL_LLM_MODEL to one of: "
+                f"{sorted(pulled)}"
+            )
 
         chat = ChatOllama(model=EVAL_LLM_MODEL, base_url=EVAL_OLLAMA_BASE_URL, temperature=0.0)
     elif EVAL_LLM_BACKEND == "anthropic":
@@ -180,13 +189,11 @@ def _build_ragas_judge():
     else:
         raise ValueError(f"Unknown AERO_EVAL_LLM_BACKEND: {EVAL_LLM_BACKEND!r}")
 
-    # answer_relevancy scores embedding similarity between the answer and a
-    # synthetic question, so it needs a real paraphrase-aware embedder --
-    # this project's own default (offline hashing) is explicitly weak at
-    # that and was tanking the score. Same Ollama model this repo already
-    # uses elsewhere for AERO_EMBEDDINGS=ollama.
-    embed = OllamaEmbeddings(model=EVAL_EMBED_MODEL, base_url=EVAL_OLLAMA_BASE_URL)
-    return LangchainLLMWrapper(chat), LangchainEmbeddingsWrapper(embed)
+    # answer_relevancy needs a paraphrase-aware embedder; bge-small via
+    # fastembed is that, and needs no Ollama embedding model.
+    from src.embeddings import FastEmbedEmbeddings
+
+    return LangchainLLMWrapper(chat), LangchainEmbeddingsWrapper(FastEmbedEmbeddings())
 
 
 def score_with_ragas(results: List[PipelineResult]):

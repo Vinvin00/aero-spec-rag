@@ -1,15 +1,13 @@
-"""Embedding backends.
+"""Embedding backends, selected by AERO_EMBEDDINGS.
 
-The default backend is deliberately offline: a deterministic hashed bag-of-
-n-grams projected into a fixed-dimension unit vector. It needs no API key and no
-model download, so ingestion, the graph, and the whole test suite run anywhere.
-It is weaker than a learned embedding at paraphrase matching, which is why the
-retriever in this project pairs it with a lexical rescoring pass.
+* ``fastembed`` (default): BAAI/bge-small-en-v1.5, a learned 384-dim sentence
+  embedder run locally on CPU via ONNX. No API key or server; the model is
+  downloaded once (~70 MB) and cached (FASTEMBED_CACHE_PATH).
+* ``local``: a deterministic hashed bag-of-n-grams, zero download, for fully
+  air-gapped runs. Weak at paraphrase.
+* ``ollama``: any embedding model served by a local Ollama.
 
-Set AERO_EMBEDDINGS=ollama to swap in a real learned model that still runs
-locally and needs no API key (pull one first, e.g. `ollama pull nomic-embed-text`).
-Nothing else in the pipeline changes, but the store is dimension-specific, so
-re-ingest with --rebuild after switching.
+The store is dimension-specific, so re-ingest with --rebuild after switching.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from functools import lru_cache
 from typing import List
 
 from langchain_core.embeddings import Embeddings
@@ -69,9 +68,32 @@ class HashingEmbeddings(Embeddings):
         return self._embed(text)
 
 
+class FastEmbedEmbeddings(Embeddings):
+    """Learned sentence embeddings via fastembed (ONNX, CPU)."""
+
+    def __init__(self, model_name: str = config.FASTEMBED_MODEL) -> None:
+        from fastembed import TextEmbedding
+
+        self.model_name = model_name
+        self._model = TextEmbedding(model_name)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return [v.tolist() for v in self._model.embed(texts)]
+
+    def embed_query(self, text: str) -> List[float]:
+        return next(iter(self._model.query_embed(text))).tolist()
+
+
+@lru_cache(maxsize=None)
+def _fastembed(model_name: str) -> FastEmbedEmbeddings:
+    return FastEmbedEmbeddings(model_name)
+
+
 def get_embeddings() -> Embeddings:
     """Return the embedding backend named by AERO_EMBEDDINGS."""
     backend = config.EMBEDDING_BACKEND
+    if backend == "fastembed":
+        return _fastembed(config.FASTEMBED_MODEL)
     if backend == "local":
         return HashingEmbeddings()
     if backend == "ollama":

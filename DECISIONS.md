@@ -67,6 +67,8 @@ So the deterministic offline path stays the default, Ollama is one environment
 variable away, and the live Ollama tests skip themselves when the server or
 model is absent.
 
+> **Superseded 2026-09-14** -- the default is now bge-small-en-v1.5 via fastembed; hashing remains as `AERO_EMBEDDINGS=local`. See the end of this file.
+
 **Default embeddings are a local deterministic hashing embedder, not a hosted
 model.** Anthropic does not offer an embeddings API at all, so "use Anthropic"
 cannot be satisfied for the vector step. `ANTHROPIC_API_KEY` was not set in the
@@ -120,6 +122,8 @@ corpus in about a second, so committing it would only add churn.
 
 ## Pipeline (formerly "Graph")
 
+> **Superseded 2026-09-14** -- LangGraph restored with real conditional edges; see "LangGraph restored with branching" at the end of this file.
+
 **LangGraph was removed before this session started; found uncommitted, kept
 as-is, documented here per the task's own instruction to flag such things.**
 `src/graph.py` originally compiled a `langgraph.graph.StateGraph` with four
@@ -146,6 +150,8 @@ library specifically, since restoring it — or using `asyncio`/a queue, or
 any other interrupt mechanism — are equally open once that node exists.
 
 ## Pipeline shape
+
+> **Superseded 2026-09-14** -- no longer linear; see the end of this file.
 
 **Linear `retrieve → verify → propose → finalize`, no interrupt.** As specified.
 **A human-in-the-loop interrupt before `propose` is the natural v2 addition** —
@@ -615,3 +621,51 @@ internal prompt isn't something this repo can patch. Left as a concrete,
 confirmed example of why a single local judge's per-question score
 shouldn't be trusted in isolation -- exactly the caution already given
 above, now with a root cause instead of just an observation.
+
+## LangGraph restored with branching (2026-09-14)
+
+**The earlier removal was right for a linear chain; the fix was to give the
+graph real decisions, not to keep a chain wearing a graph API.** Two routing
+decisions now exist, both previously hidden inside node bodies:
+
+* `route_after_retrieve`: an unresolved quantity goes straight to `decline`.
+  Before, `verify` ran anyway and returned early with an `unknown_quantity` flag.
+* `route_after_verify`: if no candidate survives the bounds check, `widen`
+  doubles `top_k` and loops back to `retrieve` once (`MAX_RETRIEVAL_ATTEMPTS=2`)
+  before declining. Before, a single retrieval miss was final.
+
+The no-candidate branch moved out of `propose` into its own `decline` node, so
+`propose` only ever sees at least one verified candidate. The public API
+(`build_graph()`, `.invoke()`, `ground_spec()`, response schema) is unchanged.
+A widened retry can return more than the requested `top_k` citations; that is
+flagged (`widened_retrieval`) rather than hidden. Tests cover both routes with a
+store stub that records every search depth.
+
+**Considered and not done:** a human-in-the-loop interrupt before `propose`.
+It needs a checkpointer plus a resume endpoint, and nothing consumes it yet.
+
+## Learned default embedder (2026-09-14)
+
+**Default is now BAAI/bge-small-en-v1.5 via fastembed (ONNX, CPU).** It is the
+same model the Ollama path and the RAGAS `answer_relevancy` fix were already
+verified against, but needs no server: fastembed downloads it once from
+HuggingFace (the CDN that worked here, unlike Ollama's R2) and caches it. The
+Docker image bakes the model and the store in and sets `HF_HUB_OFFLINE=1`, so
+the container is still network-free at runtime.
+
+The hashing embedder stays as `AERO_EMBEDDINGS=local` for air-gapped use. The
+lexical rescoring pass stays too: exact numeric tokens ("10000", "0.47") are
+exactly what a dense embedder blurs, so the retriever is now deliberately hybrid
+rather than compensating for a weak embedder.
+
+The RAGAS judge's embedder switched from the Ollama GGUF to the same fastembed
+model, removing one `ollama pull` from the eval prerequisites; the judge LLM
+now gets a preflight check that fails in seconds with the exact pull command.
+
+**Anthropic backend bug fixed alongside:** `AERO_LLM_MODEL` defaulted to
+`llama3.1:8b` for every backend, so `AERO_LLM=anthropic` without an explicit
+model sent an Ollama model name to Anthropic. Defaults are now per backend
+(`claude-haiku-4-5-20251001` for anthropic), with a timeout. An offline test
+covers construction; the live Anthropic test skips without `ANTHROPIC_API_KEY`
+and has not been run against the real API.
+

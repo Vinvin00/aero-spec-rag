@@ -1,7 +1,13 @@
-"""The grounding pipeline: retrieve -> verify -> propose -> finalize.
+"""The grounding graph (LangGraph StateGraph).
 
-Four functions chained in sequence; no branching or interrupt, so no graph
-engine is needed. See DECISIONS.md.
+    retrieve --(quantity unresolved)--------------------------> decline
+    retrieve --(quantity resolved)--> verify
+    verify   --(a candidate survived the bounds check)--------> propose
+    verify   --(none survived, first attempt)--> widen --> retrieve
+    verify   --(none survived, already widened)---------------> decline
+    propose, decline --> finalize --> END
+
+See DECISIONS.md.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.documents import Document
+from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from . import config
@@ -18,7 +25,7 @@ from .bounds import BY_KEY, QUANTITIES, Quantity, match_query
 from .embeddings import tokenize
 from .extract import Candidate, extract_candidates
 from .ingest import get_vectorstore
-from .llm import classify_quantity, llm_enabled, narrate
+from .llm import classify_quantity, llm_enabled, model_name, narrate
 from .schemas import Citation, GroundedSpec, VerificationFlag
 
 # Query terms that carry no retrieval signal.
@@ -44,6 +51,7 @@ class GroundingState(TypedDict, total=False):
 
     query: str
     top_k: int
+    attempts: int
     quantity_key: Optional[str]
     retrieved: List[Dict[str, Any]]
     candidates: List[Candidate]
@@ -112,8 +120,8 @@ def retrieve_node(state: GroundingState, store=None) -> GroundingState:
     alias_text = " ".join(quantity.doc_aliases) if quantity else ""
     search_text = f"{query} {alias_text}".strip()
 
-    # Over-fetch, then rescore: the offline hashing embedder is weak at
-    # paraphrase, so a lexical pass materially improves the final ordering.
+    # Hybrid retrieval: over-fetch by vector similarity, then rescore lexically.
+    # Exact numeric tokens ("10000", "0.47") matter here and dense embedders blur them.
     pool: List[Tuple[Document, float]] = vectorstore.similarity_search_with_score(
         search_text, k=max(top_k * 4, top_k)
     )
@@ -146,31 +154,27 @@ def retrieve_node(state: GroundingState, store=None) -> GroundingState:
 
 def verify_node(state: GroundingState) -> GroundingState:
     """Extract candidate values and check them against the bounds table."""
-    quantity: Optional[Quantity] = BY_KEY.get(state.get("quantity_key") or "")
+    quantity: Quantity = BY_KEY[state["quantity_key"]]
     pairs = [
         (Document(page_content=r["content"], metadata=r["metadata"]), r["score"])
         for r in state.get("retrieved", [])
     ]
     flags: List[VerificationFlag] = []
-
-    if quantity is None:
+    if state.get("attempts", 0) > 0:
         flags.append(
             VerificationFlag(
-                code="unknown_quantity",
-                severity="warning",
+                code="widened_retrieval",
+                severity="info",
                 message=(
-                    "The query did not match any quantity in the bounds registry, so no "
-                    "numeric verification was possible."
+                    "No candidate survived verification at the requested top_k, so "
+                    f"retrieval was re-run with top_k={state.get('top_k')}."
                 ),
             )
         )
-        # Without an identified quantity there is nothing to check a value
-        # against, so the pipeline returns citations only rather than guessing.
-        return {"candidates": [], "flags": flags}
 
     candidates = extract_candidates(pairs, quantity)
 
-    if quantity is not None and not candidates:
+    if not candidates:
         flags.append(
             VerificationFlag(
                 code="no_candidate_values",
@@ -244,15 +248,8 @@ def _selection_score(candidate: Candidate, terms: List[str]) -> float:
     return 2.0 * lexical + 0.5 * rank_bonus + provenance
 
 
-def propose_node(state: GroundingState) -> GroundingState:
-    """Pick the best surviving candidate and shape the structured response."""
-    query = state["query"]
-    terms = query_terms(query)
-    candidates: List[Candidate] = state.get("candidates", [])
-    flags: List[VerificationFlag] = list(state.get("flags", []))
-    quantity = BY_KEY.get(state.get("quantity_key") or "")
-
-    citations = [
+def _citations(state: GroundingState) -> List[Citation]:
+    return [
         Citation(
             source_doc=r["metadata"].get("source_doc", "unknown"),
             title=r["metadata"].get("title", ""),
@@ -264,21 +261,51 @@ def propose_node(state: GroundingState) -> GroundingState:
         for r in state.get("retrieved", [])
     ]
 
-    if not candidates:
-        spec = GroundedSpec(
-            query=query,
-            quantity=quantity.key if quantity else None,
-            verified=False,
-            confidence=0.0,
-            answer=(
-                "No grounded value could be extracted from the corpus for this query. "
-                "The retrieved passages are cited so the question can be narrowed."
-            ),
-            plausible_bounds=[quantity.low, quantity.high] if quantity else None,
-            flags=flags,
-            citations=citations,
+
+def widen_node(state: GroundingState) -> GroundingState:
+    """Double top_k before a second retrieval pass."""
+    top_k = int(state.get("top_k") or config.TOP_K)
+    return {"top_k": top_k * 2, "attempts": state.get("attempts", 0) + 1}
+
+
+def decline_node(state: GroundingState) -> GroundingState:
+    """Return citations only, never a value, when nothing could be verified."""
+    quantity = BY_KEY.get(state.get("quantity_key") or "")
+    flags: List[VerificationFlag] = list(state.get("flags", []))
+    if quantity is None and not any(f.code == "unknown_quantity" for f in flags):
+        flags.append(
+            VerificationFlag(
+                code="unknown_quantity",
+                severity="warning",
+                message=(
+                    "The query did not match any quantity in the bounds registry, so no "
+                    "numeric verification was possible."
+                ),
+            )
         )
-        return {"selected": None, "result": spec.model_dump()}
+    spec = GroundedSpec(
+        query=state["query"],
+        quantity=quantity.key if quantity else None,
+        verified=False,
+        confidence=0.0,
+        answer=(
+            "No grounded value could be extracted from the corpus for this query. "
+            "The retrieved passages are cited so the question can be narrowed."
+        ),
+        plausible_bounds=[quantity.low, quantity.high] if quantity else None,
+        flags=flags,
+        citations=_citations(state),
+    )
+    return {"selected": None, "flags": flags, "result": spec.model_dump()}
+
+
+def propose_node(state: GroundingState) -> GroundingState:
+    """Pick the best surviving candidate and shape the structured response."""
+    query = state["query"]
+    terms = query_terms(query)
+    candidates: List[Candidate] = state["candidates"]
+    flags: List[VerificationFlag] = list(state.get("flags", []))
+    citations = _citations(state)
 
     best = max(candidates, key=lambda c: _selection_score(c, terms))
     match_strength = lexical_score(f"{best.label} {best.notes}", terms)
@@ -350,7 +377,7 @@ def finalize_node(state: GroundingState) -> GroundingState:
         )
         if sentence:
             spec.answer = sentence
-            spec.narration_model = f"{config.LLM_BACKEND}:{config.LLM_MODEL}"
+            spec.narration_model = f"{config.LLM_BACKEND}:{model_name()}"
         else:
             spec.flags.append(
                 VerificationFlag(
@@ -371,23 +398,52 @@ def finalize_node(state: GroundingState) -> GroundingState:
 # --------------------------------------------------------------------------
 
 
+MAX_RETRIEVAL_ATTEMPTS = 2
+
+
+def route_after_retrieve(state: GroundingState) -> str:
+    return "verify" if state.get("quantity_key") else "decline"
+
+
+def route_after_verify(state: GroundingState) -> str:
+    if state.get("candidates"):
+        return "propose"
+    if state.get("attempts", 0) + 1 < MAX_RETRIEVAL_ATTEMPTS:
+        return "widen"
+    return "decline"
+
+
+def compile_graph(store=None):
+    builder = StateGraph(GroundingState)
+    builder.add_node("retrieve", lambda s: retrieve_node(s, store=store))
+    builder.add_node("verify", verify_node)
+    builder.add_node("widen", widen_node)
+    builder.add_node("propose", propose_node)
+    builder.add_node("decline", decline_node)
+    builder.add_node("finalize", finalize_node)
+
+    builder.add_edge(START, "retrieve")
+    builder.add_conditional_edges("retrieve", route_after_retrieve, ["verify", "decline"])
+    builder.add_conditional_edges("verify", route_after_verify, ["propose", "widen", "decline"])
+    builder.add_edge("widen", "retrieve")
+    builder.add_edge("propose", "finalize")
+    builder.add_edge("decline", "finalize")
+    builder.add_edge("finalize", END)
+    return builder.compile()
+
+
 class _Pipeline:
-    """Runs the four nodes in sequence, merging each partial state update."""
+    """Thin handle over the compiled graph; also the eval harness's spy point."""
 
     def __init__(self, store=None):
-        self._store = store
+        self.graph = compile_graph(store)
 
     def invoke(self, state: GroundingState) -> GroundingState:
-        state = dict(state)
-        state.update(retrieve_node(state, store=self._store))
-        state.update(verify_node(state))
-        state.update(propose_node(state))
-        state.update(finalize_node(state))
-        return state
+        return self.graph.invoke(state)
 
 
 def build_graph(store=None):
-    """Build the grounding pipeline. Pass `store` to inject a test vector store."""
+    """Build the grounding graph. Pass `store` to inject a test vector store."""
     return _Pipeline(store)
 
 

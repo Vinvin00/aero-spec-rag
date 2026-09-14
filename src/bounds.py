@@ -157,7 +157,7 @@ QUANTITIES: List[Quantity] = [
         low=1.0,
         high=5000.0,
         doc_aliases=("launch mass",),
-        query_aliases=("launch mass", "interceptor mass", "missile mass"),
+        query_aliases=("launch mass", "interceptor mass", "missile mass", "how heavy", "weigh"),
     ),
     Quantity(
         key="body_diameter",

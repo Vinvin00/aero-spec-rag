@@ -1,18 +1,17 @@
 # aero-spec-rag: retrieval-grounded aerospace parameter API.
 #
-# Ships with the deterministic offline backend (no Ollama, no API key, no
-# network call at runtime) so the demo works for anyone with just Docker.
-# The corpus is ingested once at build time so the container starts serving
-# immediately; AERO_CHROMA_DIR is still writable, so re-running `python -m
-# src.ingest` inside a running container (e.g. after editing the corpus with
-# a bind mount) works too.
+# bge-small embeddings (fastembed, CPU) and the ingested corpus are both baked
+# in at build time, so the container needs no Ollama, no API key, and no
+# network at runtime. AERO_CHROMA_DIR is still writable, so re-running
+# `python -m src.ingest` inside a running container works too.
 
 FROM python:3.12-slim AS base
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    AERO_EMBEDDINGS=local \
+    AERO_EMBEDDINGS=fastembed \
+    FASTEMBED_CACHE_PATH=/app/.fastembed \
     AERO_LLM=none
 
 COPY requirements.txt ./
@@ -20,9 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
 
-# Bake the vector store into the image: no first-request latency, and no
-# dependency on a writable volume just to answer a query.
+# Downloads the embedding model once and bakes the vector store into the image.
 RUN python -m src.ingest
+ENV HF_HUB_OFFLINE=1
 
 EXPOSE 8001
 

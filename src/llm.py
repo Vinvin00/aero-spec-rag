@@ -28,6 +28,10 @@ def llm_enabled() -> bool:
     return config.LLM_BACKEND != "none"
 
 
+def model_name() -> str:
+    return config.LLM_MODEL or config.DEFAULT_LLM_MODELS.get(config.LLM_BACKEND, "")
+
+
 @lru_cache(maxsize=1)
 def get_llm():
     """Return a chat model, or None when no LLM backend is configured."""
@@ -38,7 +42,7 @@ def get_llm():
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model=config.LLM_MODEL,
+            model=model_name(),
             base_url=config.OLLAMA_BASE_URL,
             temperature=0.0,
             client_kwargs={"timeout": config.LLM_TIMEOUT},
@@ -46,7 +50,12 @@ def get_llm():
     if backend == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=config.LLM_MODEL, temperature=0.0)
+        return ChatAnthropic(
+            model=model_name(),
+            temperature=0.0,
+            timeout=config.LLM_TIMEOUT,
+            max_retries=1,
+        )
     raise ValueError(f"Unknown AERO_LLM backend: {config.LLM_BACKEND!r}")
 
 
