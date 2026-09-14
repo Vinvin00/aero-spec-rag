@@ -1,0 +1,107 @@
+[
+  {
+    "question": "What is the ISA air density at sea level?",
+    "ground_truth_answer": "At ISA sea level, air density is 1.225 kg/m^3.",
+    "expected_source_doc": "isa-standard-atmosphere.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is the ISA air density at 10 km altitude?",
+    "ground_truth_answer": "At 10,000 m (10 km) altitude under the ISA model, air density is approximately 0.4135 kg/m^3.",
+    "expected_source_doc": "isa-density-vs-altitude.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is the speed of sound at sea level?",
+    "ground_truth_answer": "The speed of sound at ISA sea level (288.15 K, dry air) is 340.3 m/s.",
+    "expected_source_doc": "mach-reynolds-reference.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is standard gravity used in the ISA model?",
+    "ground_truth_answer": "The ISA model uses standard gravity g0 = 9.80665 m/s^2.",
+    "expected_source_doc": "isa-standard-atmosphere.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What drag coefficient should I use for a sphere?",
+    "ground_truth_answer": "A sphere at subcritical Reynolds number has a drag coefficient of about 0.47.",
+    "expected_source_doc": "drag-coefficients-by-shape.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What drag coefficient should I use for a streamlined slender body?",
+    "ground_truth_answer": "A streamlined, finned slender body has a drag coefficient of about 0.3 in subsonic axial flow.",
+    "expected_source_doc": "drag-coefficients-by-shape.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What proportional navigation gain should I use for terminal homing?",
+    "ground_truth_answer": "The usual working range for a proportional navigation gain in terminal homing is 3 to 5, with 4 a common default.",
+    "expected_source_doc": "pn-gain-selection.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What guidance update rate is typical for a digital PN loop?",
+    "ground_truth_answer": "A digital proportional-navigation guidance loop typically updates at 50 to 200 Hz.",
+    "expected_source_doc": "pn-gain-selection.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is the launch mass of a medium-range interceptor?",
+    "ground_truth_answer": "An illustrative medium-range interceptor class has a launch mass of about 700 kg.",
+    "expected_source_doc": "interceptor-class-parameters.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is the maximum lateral acceleration of a short-range interceptor?",
+    "ground_truth_answer": "An illustrative short-range agile interceptor has a maximum lateral acceleration of about 30 g.",
+    "expected_source_doc": "interceptor-class-parameters.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What target speed is typical for a fast manoeuvring target?",
+    "ground_truth_answer": "An illustrative fast, manoeuvring target has a speed of about 600 m/s.",
+    "expected_source_doc": "target-class-parameters.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What closing velocity range is typical for a terminal engagement?",
+    "ground_truth_answer": "Illustrative closing velocity in a terminal engagement spans roughly 300 to 1800 m/s, depending on geometry.",
+    "expected_source_doc": "engagement-geometry-basics.md",
+    "is_trap": false,
+    "expected_verified": true
+  },
+  {
+    "question": "What is the specific impulse of the interceptor's rocket motor?",
+    "ground_truth_answer": "Specific impulse is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+    "expected_source_doc": null,
+    "is_trap": true,
+    "expected_verified": false
+  },
+  {
+    "question": "What is the radar cross section of the target?",
+    "ground_truth_answer": "Radar cross section is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+    "expected_source_doc": null,
+    "is_trap": true,
+    "expected_verified": false
+  },
+  {
+    "question": "What is the unit cost of the interceptor in dollars?",
+    "ground_truth_answer": "Unit cost is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+    "expected_source_doc": null,
+    "is_trap": true,
+    "expected_verified": false
+  }
+]

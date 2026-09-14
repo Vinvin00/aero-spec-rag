@@ -198,6 +198,7 @@ src/
   schemas.py         pydantic response models
   api.py             FastAPI app
 tests/
+eval/                evaluation suite (see Evaluation, below)
 ```
 
 ## Tests
@@ -211,11 +212,67 @@ developer's `.chroma/`. The LLM guard tests stub the model, so the whole suite
 runs offline; the live Ollama tests skip themselves automatically when the
 server or the model is not present.
 
+## Evaluation
+
+`eval/` is a [RAGAS](https://github.com/explodinggradients/ragas)-based
+evaluation suite layered on top of the pipeline -- it doesn't change any
+pipeline behavior, it just measures it. 15 hand-written questions
+(`eval/testset.py` / `eval/testset.json`), 12 answerable from the corpus and
+3 "trap" questions about quantities that exist nowhere in it, are each run
+through the *real* pipeline (`src.graph`, no mocking) and scored two ways:
+
+* **RAGAS metrics** -- `faithfulness`, `context_precision`, `context_recall`,
+  `answer_relevancy` -- computed by an LLM judge comparing what the pipeline
+  actually retrieved and answered against a human-written reference answer.
+  Averaged over the 12 answerable questions only (see DECISIONS.md for why
+  the 3 traps are excluded from this average, though their individual scores
+  still appear in the report).
+* **`verify_node_accuracy`** -- a custom, non-RAGAS check specific to this
+  pipeline: did the `verified` flag come out `true` for the 12 answerable
+  questions and `false` for the 3 traps? This is what actually tests whether
+  `verify_node` refuses to fabricate a value for a question the corpus can't
+  answer, which none of the four standard RAGAS metrics test directly.
+
+The testset's `ground_truth_answer` field is used only to *score* the
+pipeline's output after the fact -- it is never passed into retrieval or
+generation, so the pipeline answers every question exactly as it would for a
+real user.
+
+```bash
+python -m eval.report
+```
+
+Requires a local Ollama server (`AERO_EVAL_LLM_BACKEND=ollama` by default, no
+API key) serving the judge model (`AERO_EVAL_LLM_MODEL`, default
+`qwen2.5:3b` -- see DECISIONS.md for why a small model, not this project's
+usual `llama3.1:8b`, is the eval default). `AERO_EVAL_LLM_BACKEND=anthropic`
+switches to a hosted judge if you'd rather spend an API key than run Ollama.
+A full run takes several minutes against a local model, since RAGAS makes
+multiple sequential LLM calls per question per metric.
+
+Each run writes:
+
+* `eval/results/report_<timestamp>.md` -- a metrics table, a per-question
+  breakdown (score per metric, pass/fail against the thresholds below), and
+  a one-line overall verdict. One file per run, never overwritten.
+* `eval/results/latest.json` -- the same data as structured JSON, overwritten
+  every run, meant for a future CI step to read.
+
+Pass thresholds (`eval/report.py`): `faithfulness >= 0.80`,
+`context_precision >= 0.70`, `context_recall >= 0.70`,
+`answer_relevancy >= 0.70`, `verify_node_accuracy == 1.0`. Rationale for each
+number is in DECISIONS.md.
+
+`tests/test_eval_harness.py` covers the harness itself -- testset schema,
+`collect_results` running the real pipeline end to end, and the
+no-ground-truth-leakage guarantee -- without needing a live judge LLM, so it
+runs in the normal `pytest` pass above.
+
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AERO_EMBEDDINGS` | `local` | `local`, `ollama`, `openai`, or `voyage` |
+| `AERO_EMBEDDINGS` | `local` | `local` or `ollama` |
 | `AERO_LLM` | `none` | `none`, `ollama`, or `anthropic` |
 | `AERO_LLM_MODEL` | `llama3.1:8b` | Chat model name for the active LLM backend |
 | `AERO_LLM_TIMEOUT` | `30` | Seconds before an LLM call is abandoned |

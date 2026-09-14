@@ -1,0 +1,366 @@
+{
+  "timestamp": "20260914T061622Z",
+  "thresholds": {
+    "faithfulness": 0.8,
+    "context_precision": 0.7,
+    "context_recall": 0.7,
+    "answer_relevancy": 0.7
+  },
+  "verify_node_accuracy_threshold": 1.0,
+  "overall_verdict": "FAIL -- RAGAS metric(s) below threshold: faithfulness, answer_relevancy",
+  "aggregate_metrics": {
+    "faithfulness": 0.7638888888888888,
+    "context_precision": 0.9652777776878473,
+    "context_recall": 1.0,
+    "answer_relevancy": 0.4627481227228745
+  },
+  "aggregate_metrics_including_traps": {
+    "faithfulness": 0.6777777777777777,
+    "context_precision": 0.8273809523038691,
+    "context_recall": 0.8571428571428571,
+    "answer_relevancy": 0.3966412480481782
+  },
+  "verify_node_accuracy": {
+    "accuracy": 1.0,
+    "correct": 15,
+    "total": 15,
+    "per_case": [
+      {
+        "question": "What is the ISA air density at sea level?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is the ISA air density at 10 km altitude?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is the speed of sound at sea level?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is standard gravity used in the ISA model?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What drag coefficient should I use for a sphere?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What drag coefficient should I use for a streamlined slender body?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What proportional navigation gain should I use for terminal homing?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What guidance update rate is typical for a digital PN loop?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is the launch mass of a medium-range interceptor?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is the maximum lateral acceleration of a short-range interceptor?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What target speed is typical for a fast manoeuvring target?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What closing velocity range is typical for a terminal engagement?",
+        "is_trap": false,
+        "expected_verified": true,
+        "actual_verified": true,
+        "correct": true
+      },
+      {
+        "question": "What is the specific impulse of the interceptor's rocket motor?",
+        "is_trap": true,
+        "expected_verified": false,
+        "actual_verified": false,
+        "correct": true
+      },
+      {
+        "question": "What is the radar cross section of the target?",
+        "is_trap": true,
+        "expected_verified": false,
+        "actual_verified": false,
+        "correct": true
+      },
+      {
+        "question": "What is the unit cost of the interceptor in dollars?",
+        "is_trap": true,
+        "expected_verified": false,
+        "actual_verified": false,
+        "correct": true
+      }
+    ]
+  },
+  "per_question": [
+    {
+      "question": "What is the ISA air density at sea level?",
+      "is_trap": false,
+      "expected_source_doc": "isa-standard-atmosphere.md",
+      "source_doc": "isa-standard-atmosphere.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 1.0,
+      "generated_answer": "air density = 1.225 kg/m^3 (ISA sea level, standard day), from isa-standard-atmosphere.md.",
+      "ground_truth_answer": "At ISA sea level, air density is 1.225 kg/m^3.",
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.6515199040447625
+    },
+    {
+      "question": "What is the ISA air density at 10 km altitude?",
+      "is_trap": false,
+      "expected_source_doc": "isa-density-vs-altitude.md",
+      "source_doc": "isa-density-vs-altitude.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.787,
+      "generated_answer": "air density = 0.4135 kg/m^3 (ISA at 10000 m altitude), from isa-density-vs-altitude.md.",
+      "ground_truth_answer": "At 10,000 m (10 km) altitude under the ISA model, air density is approximately 0.4135 kg/m^3.",
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.5298129428260175
+    },
+    {
+      "question": "What is the speed of sound at sea level?",
+      "is_trap": false,
+      "expected_source_doc": "mach-reynolds-reference.md",
+      "source_doc": "mach-reynolds-reference.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 1.0,
+      "generated_answer": "speed of sound = 340.3 m/s (ISA sea level, 288.15 K), from mach-reynolds-reference.md.",
+      "ground_truth_answer": "The speed of sound at ISA sea level (288.15 K, dry air) is 340.3 m/s.",
+      "faithfulness": 1.0,
+      "context_precision": 0.99999999995,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.8298034335546235
+    },
+    {
+      "question": "What is standard gravity used in the ISA model?",
+      "is_trap": false,
+      "expected_source_doc": "isa-standard-atmosphere.md",
+      "source_doc": "isa-standard-atmosphere.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.91,
+      "generated_answer": "gravity = 9.80665 m/s^2 (standard acceleration, used throughout ISA), from isa-standard-atmosphere.md.",
+      "ground_truth_answer": "The ISA model uses standard gravity g0 = 9.80665 m/s^2.",
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.15877683720748895
+    },
+    {
+      "question": "What drag coefficient should I use for a sphere?",
+      "is_trap": false,
+      "expected_source_doc": "drag-coefficients-by-shape.md",
+      "source_doc": "drag-coefficients-by-shape.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.8,
+      "generated_answer": "drag coefficient = 0.47 dimensionless (sphere, subcritical Reynolds number), from drag-coefficients-by-shape.md.",
+      "ground_truth_answer": "A sphere at subcritical Reynolds number has a drag coefficient of about 0.47.",
+      "faithfulness": 0.5,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.4548892384768643
+    },
+    {
+      "question": "What drag coefficient should I use for a streamlined slender body?",
+      "is_trap": false,
+      "expected_source_doc": "drag-coefficients-by-shape.md",
+      "source_doc": "drag-coefficients-by-shape.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.71,
+      "generated_answer": "drag coefficient = 0.3 dimensionless (blunt-nosed slender body, subsonic), from drag-coefficients-by-shape.md.",
+      "ground_truth_answer": "A streamlined, finned slender body has a drag coefficient of about 0.3 in subsonic axial flow.",
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.4355724051843766
+    },
+    {
+      "question": "What proportional navigation gain should I use for terminal homing?",
+      "is_trap": false,
+      "expected_source_doc": "pn-gain-selection.md",
+      "source_doc": "pn-gain-selection.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.76,
+      "generated_answer": "navigation gain = 3 to 5 dimensionless (usual working range for terminal homing), from pn-gain-selection.md.",
+      "ground_truth_answer": "The usual working range for a proportional navigation gain in terminal homing is 3 to 5, with 4 a common default.",
+      "faithfulness": 0.5,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.450563556889583
+    },
+    {
+      "question": "What guidance update rate is typical for a digital PN loop?",
+      "is_trap": false,
+      "expected_source_doc": "pn-gain-selection.md",
+      "source_doc": "pn-gain-selection.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.775,
+      "generated_answer": "guidance update rate = 50 to 200 Hz (typical digital loop rate in simulation studies), from pn-gain-selection.md.",
+      "ground_truth_answer": "A digital proportional-navigation guidance loop typically updates at 50 to 200 Hz.",
+      "faithfulness": 0.6666666666666666,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.4862645390838647
+    },
+    {
+      "question": "What is the launch mass of a medium-range interceptor?",
+      "is_trap": false,
+      "expected_source_doc": "interceptor-class-parameters.md",
+      "source_doc": "interceptor-class-parameters.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.81,
+      "generated_answer": "launch mass = 700 kg (illustrative medium-range class), from interceptor-class-parameters.md.",
+      "ground_truth_answer": "An illustrative medium-range interceptor class has a launch mass of about 700 kg.",
+      "faithfulness": 0.5,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.5285098720882158
+    },
+    {
+      "question": "What is the maximum lateral acceleration of a short-range interceptor?",
+      "is_trap": false,
+      "expected_source_doc": "interceptor-class-parameters.md",
+      "source_doc": "interceptor-class-parameters.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.575,
+      "generated_answer": "lateral acceleration = 30 g (illustrative airframe limit), from interceptor-class-parameters.md.",
+      "ground_truth_answer": "An illustrative short-range agile interceptor has a maximum lateral acceleration of about 30 g.",
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.41785544701867255
+    },
+    {
+      "question": "What target speed is typical for a fast manoeuvring target?",
+      "is_trap": false,
+      "expected_source_doc": "target-class-parameters.md",
+      "source_doc": "target-class-parameters.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.72,
+      "generated_answer": "target speed = 600 m/s (illustrative supersonic dash), from target-class-parameters.md.",
+      "ground_truth_answer": "An illustrative fast, manoeuvring target has a speed of about 600 m/s.",
+      "faithfulness": 0.3333333333333333,
+      "context_precision": 0.9999999999,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.3135447206678482
+    },
+    {
+      "question": "What closing velocity range is typical for a terminal engagement?",
+      "is_trap": false,
+      "expected_source_doc": "engagement-geometry-basics.md",
+      "source_doc": "engagement-geometry-basics.md",
+      "expected_verified": true,
+      "verified": true,
+      "confidence": 0.67,
+      "generated_answer": "closing velocity = 300 to 1800 m/s (illustrative range across head-on and tail-chase geometries), from engagement-geometry-basics.md.",
+      "ground_truth_answer": "Illustrative closing velocity in a terminal engagement spans roughly 300 to 1800 m/s, depending on geometry.",
+      "faithfulness": 0.6666666666666666,
+      "context_precision": 0.5833333333041666,
+      "context_recall": 1.0,
+      "answer_relevancy": 0.29586457563217733
+    },
+    {
+      "question": "What is the specific impulse of the interceptor's rocket motor?",
+      "is_trap": true,
+      "expected_source_doc": null,
+      "source_doc": null,
+      "expected_verified": false,
+      "verified": false,
+      "confidence": 0.0,
+      "generated_answer": "No grounded value could be extracted from the corpus for this query. The retrieved passages are cited so the question can be narrowed.",
+      "ground_truth_answer": "Specific impulse is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+      "faithfulness": 0.5,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question": "What is the radar cross section of the target?",
+      "is_trap": true,
+      "expected_source_doc": null,
+      "source_doc": null,
+      "expected_verified": false,
+      "verified": false,
+      "confidence": 0.0,
+      "generated_answer": "No grounded value could be extracted from the corpus for this query. The retrieved passages are cited so the question can be narrowed.",
+      "ground_truth_answer": "Radar cross section is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+      "faithfulness": 0.5,
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question": "What is the unit cost of the interceptor in dollars?",
+      "is_trap": true,
+      "expected_source_doc": null,
+      "source_doc": null,
+      "expected_verified": false,
+      "verified": false,
+      "confidence": 0.0,
+      "generated_answer": "No grounded value could be extracted from the corpus for this query. The retrieved passages are cited so the question can be narrowed.",
+      "ground_truth_answer": "Unit cost is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
+      "faithfulness": 0.0,
+      "context_precision": NaN,
+      "context_recall": NaN,
+      "answer_relevancy": NaN
+    }
+  ],
+  "judge_llm": "ollama:qwen2.5:7b",
+  "testset_size": 15,
+  "good_questions": 12,
+  "trap_questions": 3
+}

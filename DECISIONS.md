@@ -248,3 +248,273 @@ nonsense.
 The GitHub CLI was authenticated, so a **private** repository was created and the
 initial commit pushed. Private rather than public because the brief said private;
 it can be flipped with `gh repo edit --visibility public`.
+
+## Evaluation (RAGAS)
+
+**ragas 0.4.3 (latest) is incompatible with this repo's pinned
+`langchain-community==0.4.2`, and this is a real upstream bug, not a local
+problem.** `ragas.llms.base` unconditionally does `from
+langchain_community.chat_models.vertexai import ChatVertexAI` at *import
+time* -- for every user, regardless of which provider they actually use to
+judge. That submodule was removed from `langchain-community` (moved to the
+separate `langchain-google-vertexai` package) well before 0.4.2. Verified
+this isn't a fluke by also trying `ragas==0.2.15`: identical import error.
+Downgrading `langchain-community` to satisfy ragas was rejected -- it's a
+pinned, tested dependency of the *core pipeline*, and the task explicitly
+scoped this as "add evaluation on top," not "change the pipeline's
+dependencies." Instead, `eval/_ragas_compat.py` registers two harmless dummy
+modules at the dead import paths before `ragas` is ever imported anywhere in
+the process. The stub is inert -- this project only ever configures Ollama or
+Anthropic as the judge, never Vertex AI -- and every file that touches
+`ragas` imports the compat shim first, with a comment pointing here.
+
+**The four requested metrics (`faithfulness`, `context_precision`,
+`context_recall`, `answer_relevancy`) import from `ragas.metrics`, but that
+path is now deprecated in favor of `ragas.metrics.collections`.** Kept the
+classic `ragas.metrics` import for this v1: it's stable, still works, and the
+deprecation only affects a future ragas major version, not this one. Noted
+here so upgrading later knows where to start.
+
+**RAGAS metrics need a judge LLM, and the default is Ollama, not Anthropic --
+consistent with the rest of this repo's "no API key needed" stance
+(`src/llm.py`, `src/embeddings.py`).** No `ANTHROPIC_API_KEY` was set in this
+environment; `AERO_EVAL_LLM_BACKEND=anthropic` is supported as an override for
+anyone who'd rather spend a hosted key. `answer_relevancy` also needs an
+embedding model; rather than pull in a second embedding dependency just for
+eval, it reuses this project's own `src.embeddings.get_embeddings()` (the
+offline hashing embedder by default), wrapped for ragas.
+
+**The eval judge model is `qwen2.5:3b`, not this project's usual
+`llama3.1:8b` default, and this was an empirical finding, not a preference.**
+Tried three models against a live Ollama server in this order:
+
+1. `llama3.2:latest` (whatever happened to be pulled already) --
+   RAGAS's `faithfulness` metric failed to parse the model's output as valid
+   structured JSON after all retries (`OutputParserException`), scoring `nan`.
+   A 3B general-purpose model isn't reliably JSON-compliant enough for RAGAS's
+   multi-step prompts (statement extraction, then NLI verdicts, each as JSON).
+2. `llama3.1:8b` (this project's own documented default) -- failed outright:
+   `ResponseError(model requires more system memory (4.8 GiB) than is
+   available (3.5 GiB))`. This Ollama server turned out to be running inside a
+   memory-constrained Docker container (part of an unrelated local stack,
+   discovered mid-task, nothing to do with this repo), not natively on the
+   host.
+3. `qwen2.5:3b` -- fit comfortably in the container's memory budget *and*
+   produced valid structured output on the first try. Qwen's instruction-tuned
+   models are known to be unusually strict about following output-format
+   instructions relative to their size, which is exactly the property RAGAS's
+   prompts need. `AERO_EVAL_LLM_MODEL` overrides it if a different model
+   fits your environment better.
+
+**Mid-task, the local Ollama server changed underneath this eval, twice, for
+reasons entirely outside this repo.** Worth recording since it directly
+explains why the "live judge model" ended up being an env-var override rather
+than the code default: this machine runs *two* separate Ollama instances that
+both bind port 11434 -- one native to macOS, one inside a Docker container
+(part of an unrelated local stack, discovered mid-task) -- and depending on
+which one is currently answering, `qwen2.5:3b` (pulled only into the
+container) may or may not exist. Docker Desktop then went down entirely
+partway through the first live eval run, silently failing the port over to
+the native server, which does not have `qwen2.5:3b` -- the run sat alive but
+stalled (near-zero CPU for 6+ minutes: ragas's own retry/backoff logic
+masking a "model not found" failure as a long, quiet hang, not a crash). The
+final live run (see the Final Report) used `qwen2.5:7b`, already present on
+whichever server ended up live, overridden via `AERO_EVAL_LLM_MODEL` rather
+than changing the code default -- and turned out roughly 4-5x faster per call
+than `qwen2.5:3b` had been (native host, no container memory ceiling). The
+code default stays `qwen2.5:3b` because it is the smaller, more portable
+assumption for someone else's fresh environment; this machine's Ollama
+instability is local flavor, not a repo concern.
+
+**`RunConfig(timeout=600, max_workers=1)` is hardcoded in
+`score_with_ragas`, not left at ragas's defaults (`timeout=180,
+max_workers=16`).** A local Ollama instance serves one generation at a time
+no matter how many concurrent jobs ragas fires; with 16 workers the jobs
+queue up behind each other and mostly hit the 180s timeout before their turn
+even arrives -- observed directly: 7 of 8 jobs timed out on a 2-question,
+1-metric smoke test at the defaults. Serializing (`max_workers=1`) makes the
+queueing honest instead of silently lossy, and 600s gives a small local model
+room to finish what is often a multi-call chain (statement extraction *then*
+verdict, for faithfulness) within one job.
+
+**Trap-question design: "value not in the corpus," not "value outside
+plausible bounds."** The task brief's own example ("asking for a value
+outside plausible bounds") doesn't have a natural-language trigger in this
+system: `verify_node`'s bounds check (Cd in [0.01, 1.5], etc., see
+`src/bounds.py`) only ever rejects a value that was *already* out of bounds in
+a retrieved chunk, and every value actually in this hand-written, well-formed
+corpus is in bounds by construction -- `tests/test_graph.py`'s
+`test_out_of_bounds_value_is_flagged_and_discarded` exercises that path
+directly, by injecting a corrupted chunk, because no real user query can
+reach it through the front door. What a real user query *can* trigger is
+asking about a quantity that exists in neither `src/bounds.py`'s registry nor
+the corpus -- specific impulse, radar cross section, unit cost -- and that is
+exactly what the 3 trap questions do. One "good" question was dropped after
+live-testing for the same reason this section exists: "What is the ISA lapse
+rate in the troposphere?" is answerable from the corpus (isa-standard-atmosphere.md
+has the row), but the retriever doesn't surface that chunk within `top_k=5`
+for this phrasing -- a genuine retrieval-quality gap, not a verification
+trap, and not a fair "good" question to hand-score against, since I'd be
+grading against my own mistaken assumption about what the pipeline retrieves.
+Recorded here rather than silently swapped out; see the Final Report for
+what this implies about `context_recall`.
+
+**Every "good" testset entry's `expected_source_doc` was confirmed against a
+live run of the actual pipeline before being written down, not inferred from
+reading the corpus.** `eval/testset.py`'s docstring says as much. This is
+also how the lapse-rate gap above was caught.
+
+**Trap questions are excluded from the RAGAS pass-threshold average, but
+their individual scores still appear in the report.** A trap question has no
+valid answer or supporting context by construction (that's the point), so
+`faithfulness`/`context_recall`/etc. scored against it measure "is there
+nothing to be faithful to," not pipeline quality -- averaging them in with
+the 12 good questions would let a bad trap score silently drag down or
+inflate the pass verdict for reasons unrelated to retrieval or generation
+quality. `eval/report.py`'s `aggregate_metrics` covers the 12 good questions
+only; `aggregate_metrics_including_traps` is computed too and kept in
+`latest.json` for anyone who wants the full-set number. Correctness on traps
+is `verify_node_accuracy`'s job, which *does* cover all 15 (12 expecting
+`true`, 3 expecting `false`).
+
+**Pass thresholds:** `faithfulness >= 0.80` -- faithfulness measures whether
+the generated answer's claims are actually supported by the retrieved
+context, and this pipeline's answers are template-formatted directly from a
+parsed, bounds-checked table cell (see `propose_node` in `src/graph.py`), so
+a low score here would mean something is structurally wrong, not
+borderline -- 0.80 leaves room for judge-model noise without being lax.
+`context_precision >= 0.70` and `context_recall >= 0.70` -- lower than
+faithfulness because retrieval over a 39-chunk corpus with a deliberately
+offline, paraphrase-weak default embedder (see the Model and embedding
+provider section above) is expected to be noisier than generation off an
+already-retrieved chunk; 0.70 is a real bar but not one tuned to this
+particular embedder's known weakness. `answer_relevancy >= 0.70` -- same
+reasoning; the generated answer is a terse, formula-shaped sentence
+(`"quantity = value unit (context), from source_doc."`), which is exactly the
+shape RAGAS's answer-relevancy metric (round-tripping the answer back to a
+synthetic question) handles least gracefully, so the threshold stays a real
+bar without punishing the format choice. `verify_node_accuracy == 1.0` --
+unlike the RAGAS metrics, this one has no reason to tolerate noise: it is a
+plain boolean equality check over the pipeline's own already-deterministic
+`verified` flag, not an LLM judgment, so anything less than 1.0 means the
+verify node is actually wrong on at least one case, not that a judge model
+was uncertain.
+
+**`eval/testset.py` (source) and `eval/testset.json` (generated,
+committed).** The task asked for the json to be "inspectable without running
+code," so it's checked in rather than generated on the fly by the harness;
+`python -m eval.testset` regenerates it from `testset.py` (the source of
+truth) if either drifts. Two extra fields beyond
+`{question, ground_truth_answer, expected_source_doc}` were added:
+`is_trap: bool` and `expected_verified: bool` -- the task's own trap-question
+requirement ("did the pipeline's own verified flag correctly match
+expectation") needs *some* per-case field to check against, and inferring
+"this is a trap" from `expected_source_doc is None` alone felt like an
+implicit convention worth making an explicit, self-documenting field instead.
+
+**`eval/run_eval.py` is split into a fast half (`collect_results`, real
+pipeline, no judge LLM) and a slow half (`score_with_ragas`, needs a live
+judge).** `tests/test_eval_harness.py` exercises only the fast half for real,
+plus a mocked `run_full_eval`/`report.render_markdown` pass (a fake
+`to_pandas()`-yielding object standing in for ragas's `EvaluationResult`) to
+prove the wiring from collected results through to a rendered report is
+correct -- per the task's own instruction to mock the LLM call and keep tests
+fast, while real metric computation stays in the manual `eval/report.py` run.
+
+**No ground-truth leakage: `ground_spec`/the pipeline is invoked with
+`case["question"]` only, everywhere.** `ground_truth_answer` is read
+exclusively in `score_with_ragas` (as RAGAS's `reference` field, used to
+*grade* the pipeline's already-produced output) and in the Markdown/JSON
+report. `tests/test_eval_harness.py::test_collect_results_never_passes_ground_truth_into_the_pipeline`
+spies on `_Pipeline.invoke` to assert this directly rather than trusting it
+by inspection alone.
+
+## Live eval results and analysis (2026-09-14, qwen2.5:7b judge)
+
+Full run: `eval/results/report_20260914T061622Z.md` / `latest.json`.
+`verify_node_accuracy = 1.000` (15/15) and `context_precision = 0.965`,
+`context_recall = 1.000` -- retrieval is excellent and the pipeline never
+mismatches its own `verified` flag. `faithfulness = 0.764` (threshold 0.80,
+fails by a small margin) and `answer_relevancy = 0.463` (threshold 0.70,
+fails clearly). Overall verdict: FAIL, on those two metrics only.
+
+**Checked for ground-truth leakage specifically, since a metric failure is
+the case where you'd want to rule that out first, not last.** Two
+independent checks, not one: (1) `faithfulness` is not suspiciously close to
+1.0 -- if `ground_truth_answer` were leaking into what the pipeline generates,
+faithfulness (which compares the generated answer to retrieved context, nothing
+to do with the reference) would still likely read as trivially high across
+the board, since a leaked answer would just restate the reference verbatim;
+instead it's mixed and below threshold, which is what genuine, unleaked
+scoring looks like. (2) This isn't just inference from the numbers --
+`tests/test_eval_harness.py::test_collect_results_never_passes_ground_truth_into_the_pipeline`
+asserts it directly at the code level, by spying on `_Pipeline.invoke` and
+checking `ground_truth_answer` never appears in the query the pipeline
+actually received. No leakage found.
+
+**`answer_relevancy` is very likely a metric/embedder mismatch, not a
+pipeline quality problem.** `answer_relevancy` works by having the judge LLM
+generate synthetic questions from the pipeline's answer, then scoring
+embedding similarity between those and the real question. `score_with_ragas`
+reuses this project's own `src.embeddings.get_embeddings()` -- the offline
+hashing embedder -- as the RAGAS embedding backend, specifically to avoid
+adding a second embedding dependency just for eval. But that embedder's own
+docstring already says it is "weaker than a learned embedding at paraphrase
+matching," which is exactly the operation `answer_relevancy` depends on
+entirely. Attempted to confirm directly by rerunning `answer_relevancy` for
+one question with a real learned embedder
+(`hf.co/CompendiumLabs/bge-small-en-v1.5-gguf` via Ollama) in place of the
+hashing one -- the call failed with a connection error from local Ollama
+instability (see the note above about this machine running two competing
+Ollama instances; by this point in the task Docker was intermittently down
+entirely). Not chased further: retrying against flaky local infrastructure
+outside this repo's control wasn't a good use of the time, and the
+structural case is already strong without it. Documented here as the
+concrete next step rather than left as a bare guess -- see below.
+
+**`faithfulness` failing narrowly is most likely explained by dense,
+multi-fact table chunks, not incorrect answers.** Inspected the actual
+retrieved context for the lowest-scoring good question ("What drag
+coefficient should I use for a sphere?", faithfulness 0.500): the top chunk
+is `drag-coefficients-by-shape.md`'s full table -- eight different drag
+coefficients for eight different body shapes in one block. The generated
+answer ("drag coefficient = 0.47 ... sphere, subcritical Reynolds number,
+from drag-coefficients-by-shape.md") is directly and correctly supported by
+one row of that table, but a judge LLM doing statement-level attribution
+against a block containing several other "drag coefficient = <different
+number>" rows for other shapes plausibly treats the specific number as less
+than fully attributable, even when it's correct. This would not show up as a
+`verify_node_accuracy` failure (which checks the pipeline's own, deterministic
+bounds-checked value, not an LLM's re-derived judgment) -- and indeed it
+doesn't: accuracy is 1.000. Consistent with the theory: none of the
+low-faithfulness rows are cases where the answer itself is wrong.
+
+**Next steps, ranked by expected payoff:**
+
+1. Rerun the RAGAS embeddings wrapper with a real learned embedder (the
+   `hf.co/CompendiumLabs/bge-small-en-v1.5-gguf` Ollama model already used
+   elsewhere in this repo, or `AERO_EMBEDDINGS=ollama` generally) instead of
+   the offline hashing one, and compare `answer_relevancy` before/after. This
+   is the single most likely fix and was started but blocked by local
+   infrastructure flakiness this session, not attempted and abandoned on the
+   merits.
+2. If `faithfulness` doesn't clear 0.80 after (1) is ruled out as a factor,
+   consider chunking multi-row markdown tables one row (or a small, related
+   group of rows) per chunk instead of one whole table per chunk. This is a
+   change to `src/ingest.py`'s splitter behavior, not `src/graph.py`, and
+   was deliberately not made in this task, which was scoped to add evaluation
+   *on top of* the existing pipeline -- flagged here as a finding, not
+   applied as a fix.
+3. Re-run the full eval with a second judge model (e.g. `llama3.1:8b`, once
+   it fits wherever Ollama ends up running) to check whether the faithfulness
+   gap is judge-model noise rather than a real attribution issue -- a single
+   judge's score on an NLI-style task should not be treated as ground truth
+   on its own.
+
+None of this changes the verdict that matters most for this pipeline's actual
+job: `verify_node_accuracy = 1.000`. Every value the pipeline reported as
+verified was correct and correctly sourced, and it correctly declined all 3
+questions the corpus can't answer. The two RAGAS metrics that failed measure
+properties of the *judge's* attribution and semantic-similarity process
+layered on top of that already-correct output, not whether the pipeline
+told the truth.
