@@ -589,3 +589,29 @@ retrieval quality, not noise on the same question either judge already
 struggled with. Not investigated further here (out of scope for a
 faithfulness fix); worth a closer look if `context_recall` becomes a metric
 someone is actively trying to improve.
+
+## context_recall disagreement, root-caused (2026-09-14)
+
+Not a pipeline or retrieval problem. Pulled both judges' actual statement
+decomposition for the sphere-Cd question's `context_recall` call (same
+technique as the faithfulness investigation above):
+
+`qwen2.5:7b` decomposes the ground truth ("A sphere at subcritical Reynolds
+number has a drag coefficient of about 0.47.") into exactly 1 statement,
+correctly attributed -- score 1/1 = 1.000.
+
+`llama3.1:8b` did not decompose the ground truth at all -- it generated 9
+statements, one per row of the retrieved drag-coefficient table, each
+asserting "a sphere has Cd = X" for X taken from *other shapes'* rows (cube,
+cylinder, teardrop, etc.), then correctly marked 7 of its own 9 fabricated
+claims as unattributed. 2/9 = 0.222. The context is fine and the fact is
+fully present -- llama3.1:8b failed to follow the statement-generation
+prompt's instruction to decompose the *answer*, not the *context*, on this
+input.
+
+Nothing to fix here: the corpus, retrieval, and pipeline are all correct
+(qwen agrees), and a judge's own instruction-following failure on ragas's
+internal prompt isn't something this repo can patch. Left as a concrete,
+confirmed example of why a single local judge's per-question score
+shouldn't be trusted in isolation -- exactly the caution already given
+above, now with a root cause instead of just an observation.
