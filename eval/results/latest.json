@@ -1,5 +1,5 @@
 {
-  "timestamp": "20260914T061622Z",
+  "timestamp": "20260914T062906Z",
   "thresholds": {
     "faithfulness": 0.8,
     "context_precision": 0.7,
@@ -7,18 +7,18 @@
     "answer_relevancy": 0.7
   },
   "verify_node_accuracy_threshold": 1.0,
-  "overall_verdict": "FAIL -- RAGAS metric(s) below threshold: faithfulness, answer_relevancy",
+  "overall_verdict": "FAIL -- RAGAS metric(s) below threshold: faithfulness",
   "aggregate_metrics": {
     "faithfulness": 0.7638888888888888,
     "context_precision": 0.9652777776878473,
     "context_recall": 1.0,
-    "answer_relevancy": 0.4627481227228745
+    "answer_relevancy": 0.8747151144848148
   },
   "aggregate_metrics_including_traps": {
     "faithfulness": 0.6777777777777777,
-    "context_precision": 0.8273809523038691,
-    "context_recall": 0.8571428571428571,
-    "answer_relevancy": 0.3966412480481782
+    "context_precision": 0.7722222221502778,
+    "context_recall": 0.8,
+    "answer_relevancy": 0.6997720915878518
   },
   "verify_node_accuracy": {
     "accuracy": 1.0,
@@ -146,7 +146,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.6515199040447625
+      "answer_relevancy": 0.8908119385609122
     },
     {
       "question": "What is the ISA air density at 10 km altitude?",
@@ -161,7 +161,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.5298129428260175
+      "answer_relevancy": 0.9032146251955636
     },
     {
       "question": "What is the speed of sound at sea level?",
@@ -176,7 +176,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.99999999995,
       "context_recall": 1.0,
-      "answer_relevancy": 0.8298034335546235
+      "answer_relevancy": 0.9551951627460875
     },
     {
       "question": "What is standard gravity used in the ISA model?",
@@ -191,7 +191,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.15877683720748895
+      "answer_relevancy": 0.7956336282110432
     },
     {
       "question": "What drag coefficient should I use for a sphere?",
@@ -206,7 +206,7 @@
       "faithfulness": 0.5,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.4548892384768643
+      "answer_relevancy": 0.8874796091667854
     },
     {
       "question": "What drag coefficient should I use for a streamlined slender body?",
@@ -221,7 +221,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.4355724051843766
+      "answer_relevancy": 0.8737537818560183
     },
     {
       "question": "What proportional navigation gain should I use for terminal homing?",
@@ -236,7 +236,7 @@
       "faithfulness": 0.5,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.450563556889583
+      "answer_relevancy": 0.9321170612527899
     },
     {
       "question": "What guidance update rate is typical for a digital PN loop?",
@@ -251,7 +251,7 @@
       "faithfulness": 0.6666666666666666,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.4862645390838647
+      "answer_relevancy": 0.8843402799812474
     },
     {
       "question": "What is the launch mass of a medium-range interceptor?",
@@ -266,7 +266,7 @@
       "faithfulness": 0.5,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.5285098720882158
+      "answer_relevancy": 0.8689970262427936
     },
     {
       "question": "What is the maximum lateral acceleration of a short-range interceptor?",
@@ -281,7 +281,7 @@
       "faithfulness": 1.0,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.41785544701867255
+      "answer_relevancy": 0.9264798964220818
     },
     {
       "question": "What target speed is typical for a fast manoeuvring target?",
@@ -296,7 +296,7 @@
       "faithfulness": 0.3333333333333333,
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "answer_relevancy": 0.3135447206678482
+      "answer_relevancy": 0.7896012938522808
     },
     {
       "question": "What closing velocity range is typical for a terminal engagement?",
@@ -311,7 +311,7 @@
       "faithfulness": 0.6666666666666666,
       "context_precision": 0.5833333333041666,
       "context_recall": 1.0,
-      "answer_relevancy": 0.29586457563217733
+      "answer_relevancy": 0.7889570703301733
     },
     {
       "question": "What is the specific impulse of the interceptor's rocket motor?",
@@ -354,9 +354,9 @@
       "generated_answer": "No grounded value could be extracted from the corpus for this query. The retrieved passages are cited so the question can be narrowed.",
       "ground_truth_answer": "Unit cost is not covered anywhere in this corpus; the pipeline should decline to answer rather than fabricate a value.",
       "faithfulness": 0.0,
-      "context_precision": NaN,
-      "context_recall": NaN,
-      "answer_relevancy": NaN
+      "context_precision": 0.0,
+      "context_recall": 0.0,
+      "answer_relevancy": 0.0
     }
   ],
   "judge_llm": "ollama:qwen2.5:7b",

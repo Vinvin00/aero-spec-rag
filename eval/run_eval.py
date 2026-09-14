@@ -46,6 +46,9 @@ from .testset import load_testset
 EVAL_LLM_BACKEND = os.environ.get("AERO_EVAL_LLM_BACKEND", "ollama")
 EVAL_LLM_MODEL = os.environ.get("AERO_EVAL_LLM_MODEL", "qwen2.5:3b")
 EVAL_OLLAMA_BASE_URL = os.environ.get("AERO_EVAL_OLLAMA_BASE_URL", "http://localhost:11434")
+EVAL_EMBED_MODEL = os.environ.get(
+    "AERO_EVAL_EMBED_MODEL", "hf.co/CompendiumLabs/bge-small-en-v1.5-gguf"
+)
 
 
 @dataclass
@@ -121,10 +124,9 @@ def verify_node_accuracy(results: List[PipelineResult]) -> Dict[str, Any]:
 
 def _build_ragas_judge():
     """Wrap a chat model + embeddings for RAGAS. Ollama by default, no API key."""
+    from langchain_ollama import OllamaEmbeddings
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from ragas.llms import LangchainLLMWrapper
-
-    from src.embeddings import get_embeddings
 
     if EVAL_LLM_BACKEND == "ollama":
         from langchain_ollama import ChatOllama
@@ -137,9 +139,13 @@ def _build_ragas_judge():
     else:
         raise ValueError(f"Unknown AERO_EVAL_LLM_BACKEND: {EVAL_LLM_BACKEND!r}")
 
-    # Reuse this project's own embedding backend (offline hashing by default)
-    # rather than adding a second embedding dependency just for RAGAS.
-    return LangchainLLMWrapper(chat), LangchainEmbeddingsWrapper(get_embeddings())
+    # answer_relevancy scores embedding similarity between the answer and a
+    # synthetic question, so it needs a real paraphrase-aware embedder --
+    # this project's own default (offline hashing) is explicitly weak at
+    # that and was tanking the score. Same Ollama model this repo already
+    # uses elsewhere for AERO_EMBEDDINGS=ollama.
+    embed = OllamaEmbeddings(model=EVAL_EMBED_MODEL, base_url=EVAL_OLLAMA_BASE_URL)
+    return LangchainLLMWrapper(chat), LangchainEmbeddingsWrapper(embed)
 
 
 def score_with_ragas(results: List[PipelineResult]):
