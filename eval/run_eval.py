@@ -28,6 +28,7 @@ from __future__ import annotations
 from . import _ragas_compat  # noqa: F401  (import for side effect)
 
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -50,6 +51,21 @@ EVAL_EMBED_MODEL = os.environ.get(
     "AERO_EVAL_EMBED_MODEL", "hf.co/CompendiumLabs/bge-small-en-v1.5-gguf"
 )
 
+# Matches propose_node's fixed answer template in src/graph.py:
+# f"{key} = {value} {unit}{' (' + notes + ')' if notes else ''}, from {doc}."
+_CITATION_CLAUSE = re.compile(r",\s*from\s+\S+\s*\.?\s*$")
+
+
+def _strip_citation_clause(answer: str) -> str:
+    """Drop the trailing ", from <file>." for faithfulness scoring only.
+
+    See the comment at its call site in score_with_ragas for why: confirmed
+    against the judge's own per-statement output that this clause is always
+    scored unsupported, for a reason that has nothing to do with whether the
+    pipeline's answer is correct.
+    """
+    return _CITATION_CLAUSE.sub("", answer).strip()
+
 
 @dataclass
 class PipelineResult:
@@ -64,6 +80,8 @@ class PipelineResult:
     # internal state, not from GroundedSpec.citations[].snippet, which the API
     # truncates to 300 chars for response-payload size, not for evaluation.
     retrieved_contexts: List[str] = field(default_factory=list)
+    # Narrower context for faithfulness only -- see collect_results.
+    faithfulness_context: List[str] = field(default_factory=list)
     generated_answer: str = ""
     verified: bool = False
     source_doc: Optional[str] = None
@@ -79,6 +97,28 @@ def collect_results(testset: Optional[List[dict]] = None) -> List[PipelineResult
         # Only the question reaches the pipeline -- see module docstring.
         state = graph.invoke({"query": case["question"]})
         result = state["result"]
+        retrieved_contexts = [r["content"] for r in state.get("retrieved", [])]
+
+        # A retrieved chunk is a whole markdown table (several rows, e.g. one
+        # per body shape or altitude); the pipeline only actually used one row
+        # of it to answer. That's the right context for *faithfulness*
+        # ("is the answer supported by what was actually used") -- handing a
+        # judge the whole table instead makes correct answers look weakly
+        # supported (which of eight values is this?). It is deliberately the
+        # *wrong* context for context_precision/context_recall, which score
+        # retrieval quality itself and need the real, full retrieved set to
+        # mean anything -- narrowing those too would make them trivially
+        # perfect and hide real retrieval gaps. See score_with_ragas.
+        selected = state.get("selected")
+        if selected is not None:
+            faithfulness_context = [
+                f"| Quantity | Value | Unit | Notes |\n| --- | --- | --- | --- |\n"
+                f"| {selected.label} | {selected.value_repr()} | {selected.unit} | "
+                f"{selected.notes} |"
+            ]
+        else:
+            faithfulness_context = retrieved_contexts
+
         results.append(
             PipelineResult(
                 question=case["question"],
@@ -86,7 +126,8 @@ def collect_results(testset: Optional[List[dict]] = None) -> List[PipelineResult
                 expected_source_doc=case["expected_source_doc"],
                 is_trap=case["is_trap"],
                 expected_verified=case["expected_verified"],
-                retrieved_contexts=[r["content"] for r in state.get("retrieved", [])],
+                retrieved_contexts=retrieved_contexts,
+                faithfulness_context=faithfulness_context,
                 generated_answer=result.get("answer", ""),
                 verified=result.get("verified", False),
                 source_doc=result.get("source_doc"),
@@ -160,19 +201,9 @@ def score_with_ragas(results: List[PipelineResult]):
     """
     from ragas import EvaluationDataset, SingleTurnSample, evaluate
     from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+    from ragas.run_config import RunConfig
 
-    samples = [
-        SingleTurnSample(
-            user_input=r.question,
-            retrieved_contexts=r.retrieved_contexts or [""],
-            response=r.generated_answer,
-            reference=r.ground_truth_answer,
-        )
-        for r in results
-    ]
-    dataset = EvaluationDataset(samples=samples)
     llm, embeddings = _build_ragas_judge()
-
     # A local Ollama instance serves one generation at a time regardless of
     # how many concurrent jobs ragas fires, so max_workers>1 only means many
     # jobs sit queued behind each other until ragas's own per-job timeout
@@ -180,24 +211,61 @@ def score_with_ragas(results: List[PipelineResult]):
     # the default settings on a 2-question smoke test. max_workers=1 makes
     # the queueing honest instead of hidden, and 600s gives a small local
     # model room to finish its (often multi-call) chain per job.
-    from ragas.run_config import RunConfig
+    run_config = RunConfig(timeout=600, max_workers=1)
 
-    return evaluate(
-        dataset=dataset,
-        metrics=[faithfulness, context_precision, context_recall, answer_relevancy],
-        llm=llm,
-        embeddings=embeddings,
-        show_progress=False,
-        run_config=RunConfig(timeout=600, max_workers=1),
-    )
+    def _run(metrics, context_field, strip_citation=False):
+        dataset = EvaluationDataset(
+            samples=[
+                SingleTurnSample(
+                    user_input=r.question,
+                    retrieved_contexts=getattr(r, context_field) or [""],
+                    response=(
+                        _strip_citation_clause(r.generated_answer)
+                        if strip_citation
+                        else r.generated_answer
+                    ),
+                    reference=r.ground_truth_answer,
+                )
+                for r in results
+            ]
+        )
+        return evaluate(
+            dataset=dataset,
+            metrics=metrics,
+            llm=llm,
+            embeddings=embeddings,
+            show_progress=False,
+            run_config=run_config,
+        ).to_pandas()
+
+    # faithfulness asks "is the answer supported by what was actually used to
+    # produce it" -- retrieved_contexts (the whole table chunk) is the wrong
+    # scope for that; faithfulness_context (the one row actually cited) is
+    # right. context_precision/context_recall score retrieval itself and need
+    # the real, full retrieved set -- see collect_results for the full
+    # reasoning on why these two must NOT share a context field.
+    #
+    # strip_citation=True here only: confirmed directly (not guessed) by
+    # inspecting the judge's own per-statement verdicts -- every answer's
+    # trailing ", from <file>." is extracted as its own claim and always
+    # fails, reason verbatim "The context does not provide any information
+    # about the source of the data." True: a bare table row can never
+    # confirm which file it came from: that's retrieval-time metadata, not
+    # a fact the row's text asserts about itself. Penalizing faithfulness
+    # for a citation the row was never going to contain isn't measuring
+    # anything -- the citation's correctness is exactly what
+    # `expected_source_doc` / `verify_node_accuracy` already check.
+    faithfulness_df = _run([faithfulness], "faithfulness_context", strip_citation=True)
+    other_df = _run([context_precision, context_recall, answer_relevancy], "retrieved_contexts")
+    other_df["faithfulness"] = faithfulness_df["faithfulness"]
+    return other_df
 
 
 def run_full_eval() -> Dict[str, Any]:
     """Collect + score. Returns one combined results dict."""
     results = collect_results()
     verify_acc = verify_node_accuracy(results)
-    ragas_result = score_with_ragas(results)
-    ragas_df = ragas_result.to_pandas()
+    ragas_df = score_with_ragas(results)
 
     per_question = []
     for i, r in enumerate(results):

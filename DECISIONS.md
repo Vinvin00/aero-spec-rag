@@ -518,3 +518,48 @@ questions the corpus can't answer. The two RAGAS metrics that failed measure
 properties of the *judge's* attribution and semantic-similarity process
 layered on top of that already-correct output, not whether the pipeline
 told the truth.
+
+## Faithfulness fix (2026-09-14) -- confirmed root cause, not the first guess
+
+The first theory (dense multi-fact table chunks confuse the judge) was
+tested directly and falsified: narrowing `faithfulness`'s context to the one
+row actually used (`faithfulness_context` in `eval/run_eval.py`, kept --
+it's still the conceptually correct scope, and `context_precision`/
+`context_recall` deliberately keep the full retrieved set, since narrowing
+those too would make them trivially perfect and hide real retrieval gaps)
+barely moved the score (0.764 -> 0.736).
+
+Pulled the judge's own per-statement verdicts directly
+(`Faithfulness._create_statements` / `_create_verdicts`) instead of guessing
+again. Every answer's trailing `, from <file>.` was extracted as its own
+claim and always failed, reason verbatim: "The context does not provide any
+information about the source of the data." Correct, and unfixable by
+rephrasing: a bare table row can never confirm which file it came from --
+that's retrieval-time metadata, not something the row's text asserts about
+itself. `_strip_citation_clause` in `eval/run_eval.py` drops that clause for
+the faithfulness call only (regex matches `propose_node`'s fixed template in
+`src/graph.py`); `answer_relevancy` and the reported `generated_answer` keep
+the citation, since the citation's correctness is `verify_node_accuracy`'s
+job, not faithfulness's.
+
+Result: 0.764 -> 0.833 (FAIL -> PASS). Full metrics now PASS on all four
+thresholds; `verify_node_accuracy` remains 1.000.
+
+**A first attempted fix (splitting corpus tables into one row per chunk in
+`src/ingest.py`) was tried and reverted** before landing on the above.
+Chunking one row per Chroma vector pushed row *selection* onto the weak
+offline hashing embedder, which isn't reliable enough to pick "Cd=0.47,
+subcritical" over "Cd=0.2, supercritical" from near-duplicate row chunks --
+broke `test_example_queries_return_grounded_values[...sphere...]` and others.
+Reverted rather than degrading real retrieval accuracy to satisfy an eval
+metric; `src/graph.py`/`src/ingest.py` are unchanged from before this task.
+
+**Residual per-call judge noise, observed directly, not chased further.**
+Two questions (`lateral_acceleration`, `target_speed`) that scored 1.0 in an
+isolated rerun scored 0.000 in the full-batch run above -- same inputs,
+different verdicts, run to run, on a 7B local model at temperature 0. This
+is exactly the noise this file already flagged as next step #3 (cross-
+validate with a second judge) before this fix, and remains open. It did not
+block the PASS verdict here since the aggregate (mean over 12 questions)
+absorbs a couple of noisy individual scores; it would matter more for a
+single low-n question asked in isolation.

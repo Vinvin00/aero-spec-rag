@@ -139,21 +139,16 @@ def test_verify_node_accuracy_scores_correct_and_incorrect_cases():
 # --------------------------------------------------------------------------
 
 
-class _FakeRagasResult:
-    """Stands in for ragas's EvaluationResult: just needs .to_pandas()."""
-
-    def __init__(self, n: int):
-        self._df = pd.DataFrame(
-            {
-                "faithfulness": [0.9] * n,
-                "context_precision": [0.8] * n,
-                "context_recall": [0.75] * n,
-                "answer_relevancy": [0.85] * n,
-            }
-        )
-
-    def to_pandas(self):
-        return self._df
+def _fake_ragas_scores(n: int) -> pd.DataFrame:
+    """Stands in for score_with_ragas's returned DataFrame."""
+    return pd.DataFrame(
+        {
+            "faithfulness": [0.9] * n,
+            "context_precision": [0.8] * n,
+            "context_recall": [0.75] * n,
+            "answer_relevancy": [0.85] * n,
+        }
+    )
 
 
 def test_run_full_eval_wiring_with_a_mocked_judge(monkeypatch):
@@ -165,7 +160,7 @@ def test_run_full_eval_wiring_with_a_mocked_judge(monkeypatch):
     monkeypatch.setattr(
         run_eval_module,
         "score_with_ragas",
-        lambda results: _FakeRagasResult(len(results)),
+        lambda results: _fake_ragas_scores(len(results)),
     )
 
     result = run_full_eval()
@@ -191,7 +186,7 @@ def test_report_renders_markdown_from_a_mocked_run(monkeypatch, tmp_path):
     monkeypatch.setattr(
         run_eval_module,
         "score_with_ragas",
-        lambda results: _FakeRagasResult(len(results)),
+        lambda results: _fake_ragas_scores(len(results)),
     )
     monkeypatch.setattr(report_module, "RESULTS_DIR", tmp_path)
 
