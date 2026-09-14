@@ -563,3 +563,29 @@ validate with a second judge) before this fix, and remains open. It did not
 block the PASS verdict here since the aggregate (mean over 12 questions)
 absorbs a couple of noisy individual scores; it would matter more for a
 single low-n question asked in isolation.
+
+## Faithfulness fix, cross-validated with a second judge (2026-09-14)
+
+Reran the full eval with `llama3.1:8b` (different model family, not just a
+size variant of the qwen already used). Also PASS: `faithfulness = 0.875`
+(qwen2.5:7b: 0.833) -- the citation-clause fix holds across judges, not an
+artifact of one model's quirks. `verify_node_accuracy` is 1.000 on both, as
+it should be: it's a deterministic equality check on the pipeline's own
+flag, not an LLM judgment, so it can't disagree with itself across judges.
+
+The two judges disagree on *which* individual questions score low --
+llama3.1:8b dips to 0.500 on two questions (ISA density at 10km, launch
+mass) that qwen2.5:7b scored a clean 1.000, and vice versa neither judge's
+low scores overlap with the other's. Confirms the per-call noise already
+noted above is real judge variance, not a property of specific questions;
+the aggregate PASS is robust to it, a single-question score in isolation
+would not be.
+
+One new, more concrete disagreement worth a note: `context_recall` for
+"What drag coefficient should I use for a sphere?" is 1.000 under qwen but
+0.222 under llama3.1:8b -- context_recall is also LLM-judged (unlike
+verify_node_accuracy), so this is a real inter-judge disagreement about
+retrieval quality, not noise on the same question either judge already
+struggled with. Not investigated further here (out of scope for a
+faithfulness fix); worth a closer look if `context_recall` becomes a metric
+someone is actively trying to improve.
